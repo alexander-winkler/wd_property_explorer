@@ -110,29 +110,41 @@
       <!-- Left Column: SPARQL Query Input & Settings (4 cols on lg) -->
       <section class="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
         <div class="flex items-center justify-between">
-          <h2 class="text-sm font-semibold text-slate-900 uppercase tracking-wider">1. Entity Subquery</h2>
+          <h2 class="text-sm font-semibold text-slate-900 uppercase tracking-wider">1. Entity Cohort Source</h2>
           <span class="text-xs text-slate-400">SPARQL 1.1</span>
         </div>
 
-        <!-- Preset Examples -->
-        <div>
-          <label for="preset-select" class="block text-xs font-medium text-slate-600 mb-1">Load Example Query</label>
-          <select id="preset-select" class="w-full text-xs rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
-            <option value="writers">Writers (wd:Q36180) — Default</option>
-            <option value="nobel_physics">Nobel Prize in Physics Laureates</option>
-            <option value="eu_capitals">Capitals of EU Member States</option>
-            <option value="programming_langs">Programming Languages</option>
-            <option value="museums_berlin">Museums in Berlin</option>
-          </select>
+        <!-- Input Mode Switcher Tabs -->
+        <div class="grid grid-cols-2 rounded-xl bg-slate-100 p-1 border border-slate-200" role="tablist">
+          <button id="mode-tab-sparql" type="button" role="tab" aria-selected="true" class="py-1.5 px-2.5 text-xs font-semibold rounded-lg bg-white text-indigo-700 shadow-xs transition">
+            Custom SPARQL
+          </button>
+          <button id="mode-tab-sample" type="button" role="tab" aria-selected="false" class="py-1.5 px-2.5 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-900 transition">
+            Sample Item (P31)
+          </button>
         </div>
 
-        <!-- User Subquery Textarea -->
-        <div>
-          <div class="flex items-center justify-between mb-1">
-            <label for="sparql-input" class="block text-xs font-medium text-slate-600">Inner SELECT Query</label>
-            <button id="btn-format-query" type="button" class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">Reset Default</button>
+        <!-- MODE A: Custom SPARQL Query Panel -->
+        <div id="panel-mode-sparql" class="space-y-4">
+          <!-- Preset Examples -->
+          <div>
+            <label for="preset-select" class="block text-xs font-medium text-slate-600 mb-1">Load Example Query</label>
+            <select id="preset-select" class="w-full text-xs rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+              <option value="writers">Writers (wd:Q36180) — Default</option>
+              <option value="nobel_physics">Nobel Prize in Physics Laureates</option>
+              <option value="eu_capitals">Capitals of EU Member States</option>
+              <option value="programming_langs">Programming Languages</option>
+              <option value="museums_berlin">Museums in Berlin</option>
+            </select>
           </div>
-          <textarea id="sparql-input" rows="8" spellcheck="false" class="w-full code-font text-xs leading-relaxed rounded-xl border border-slate-300 bg-slate-900 text-slate-100 p-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="SELECT ?person WHERE { ?person wdt:P106 wd:Q36180. }">SELECT
+
+          <!-- User Subquery Textarea -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <label for="sparql-input" class="block text-xs font-medium text-slate-600">Inner SELECT Query</label>
+              <button id="btn-format-query" type="button" class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">Reset Default</button>
+            </div>
+            <textarea id="sparql-input" rows="8" spellcheck="false" class="w-full code-font text-xs leading-relaxed rounded-xl border border-slate-300 bg-slate-900 text-slate-100 p-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="SELECT ?person WHERE { ?person wdt:P106 wd:Q36180. }">SELECT
 ?person
 WHERE
 {
@@ -140,30 +152,78 @@ WHERE
 wdt:P106
 wd:Q36180.
 }</textarea>
-          <p class="mt-1.5 text-[11px] text-slate-500">
-            Embedded inside <code class="bg-slate-100 px-1 py-0.5 rounded text-slate-700">{ &lt;YOUR_QUERY&gt; }</code> and joined with <code class="bg-slate-100 px-1 py-0.5 rounded text-slate-700"><span id="inline-var-preview">?person</span> ?p [] .</code>
-          </p>
+            <p class="mt-1.5 text-[11px] text-slate-500">
+              Embedded inside <code class="bg-slate-100 px-1 py-0.5 rounded text-slate-700">{ &lt;YOUR_QUERY&gt; }</code> and joined with <code class="bg-slate-100 px-1 py-0.5 rounded text-slate-700"><span id="inline-var-preview">?person</span> ?p [] .</code>
+            </p>
+          </div>
+
+          <!-- Target Variable Input -->
+          <div>
+            <label for="target-var" class="block text-xs font-medium text-slate-600 mb-1">Target Variable</label>
+            <input id="target-var" type="text" value="?person" class="w-full code-font text-xs rounded-xl border border-slate-300 px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
         </div>
 
-        <!-- Configuration Options -->
-        <div class="pt-2 border-t border-slate-100 space-y-3">
-          <div class="grid grid-cols-2 gap-3">
-            <div>
-              <label for="target-var" class="block text-xs font-medium text-slate-600 mb-1">Target Variable</label>
-              <input id="target-var" type="text" value="?person" class="w-full code-font text-xs rounded-xl border border-slate-300 px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+        <!-- MODE B: Sample Item (Similar via P31) Panel -->
+        <div id="panel-mode-sample" class="hidden space-y-4">
+          <!-- Live Wikidata Entity Search -->
+          <div class="relative">
+            <label for="wd-search-input" class="block text-xs font-medium text-slate-600 mb-1">Search Wikidata Item by Name</label>
+            <div class="relative">
+              <svg class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+              <input id="wd-search-input" type="text" autocomplete="off" placeholder="Type e.g. Douglas Adams, Berlin, Python..." class="w-full pl-9 pr-3 py-2 text-xs rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
             </div>
-            <div>
-              <label for="label-lang" class="block text-xs font-medium text-slate-600 mb-1">Label Language</label>
-              <input id="label-lang" type="text" value="en" maxlength="10" class="w-full code-font text-xs rounded-xl border border-slate-300 px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="en, de, fr..." />
+            <!-- Autocomplete Dropdown -->
+            <div id="wd-search-results" class="hidden absolute left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-40 max-h-60 overflow-y-auto divide-y divide-slate-100"></div>
+          </div>
+
+          <!-- Direct QID / URL Input -->
+          <div>
+            <label for="sample-qid-input" class="block text-xs font-medium text-slate-600 mb-1">Sample Item QID or Wikidata URL</label>
+            <input id="sample-qid-input" type="text" value="Q42" placeholder="e.g. Q42 or https://www.wikidata.org/wiki/Q42" class="w-full code-font text-xs rounded-xl border border-slate-300 px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+          </div>
+
+          <!-- Quick Sample Presets -->
+          <div>
+            <span class="block text-[11px] font-medium text-slate-500 mb-1.5">Quick Sample Items:</span>
+            <div class="flex flex-wrap gap-1.5">
+              <button type="button" data-qid="Q42" class="sample-preset-btn px-2.5 py-1 text-[11px] font-medium rounded-lg bg-indigo-50 text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition">Q42 · Douglas Adams</button>
+              <button type="button" data-qid="Q64" class="sample-preset-btn px-2.5 py-1 text-[11px] font-medium rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition">Q64 · Berlin</button>
+              <button type="button" data-qid="Q9143" class="sample-preset-btn px-2.5 py-1 text-[11px] font-medium rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition">Q9143 · Prog. Language</button>
+              <button type="button" data-qid="Q11424" class="sample-preset-btn px-2.5 py-1 text-[11px] font-medium rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 transition">Q11424 · Film</button>
             </div>
           </div>
 
-          <div>
-            <label for="endpoint-select" class="block text-xs font-medium text-slate-600 mb-1">SPARQL Endpoint</label>
-            <select id="endpoint-select" class="w-full text-xs rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-              <option value="qlever" selected>QLever Wikidata (Fast, uses @lang@rdfs:label)</option>
-              <option value="wdqs">Official Wikidata Query Service (WDQS)</option>
-            </select>
+          <!-- Optional Cohort Cap Toggle -->
+          <div class="rounded-xl bg-slate-50 border border-slate-200 p-3 space-y-1.5">
+            <label class="flex items-start gap-2 cursor-pointer">
+              <input id="sample-limit-toggle" type="checkbox" class="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500" />
+              <span class="text-xs text-slate-700 leading-snug">
+                Limit similar items pool to <strong>50,000</strong> (<code class="text-[11px] bg-white px-1 rounded border border-slate-200">LIMIT 50000</code>)
+              </span>
+            </label>
+            <p class="text-[11px] text-slate-500 pl-6">
+              QLever handles millions of items (e.g. <code class="text-slate-700">Q5</code> human) instantly; enable this if using official WDQS to avoid timeouts.
+            </p>
+          </div>
+        </div>
+
+        <!-- Shared Configuration Options -->
+        <div class="pt-2 border-t border-slate-100 space-y-3">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label for="label-lang" class="block text-xs font-medium text-slate-600 mb-1">Language</label>
+              <input id="label-lang" type="text" value="en" maxlength="10" class="w-full code-font text-xs rounded-xl border border-slate-300 px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="en, de..." />
+            </div>
+            <div class="sm:col-span-2">
+              <label for="endpoint-select" class="block text-xs font-medium text-slate-600 mb-1">SPARQL Endpoint</label>
+              <select id="endpoint-select" class="w-full text-xs rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="qlever" selected>QLever Wikidata (Fast, @lang@rdfs:label)</option>
+                <option value="wdqs">Official Wikidata Query Service (WDQS)</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -194,6 +254,23 @@ wd:Q36180.
       <!-- Right Column: Visualization & Tabular Output (8 cols on lg) -->
       <section class="lg:col-span-8 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-[600px]">
         
+        <!-- Sample Item & Shared P31 Context Banner (Shown in Sample Item mode) -->
+        <div id="sample-context-banner" class="hidden px-5 py-3.5 bg-indigo-50/70 border-b border-indigo-100 flex flex-wrap items-center justify-between gap-3">
+          <div class="space-y-1">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="text-[11px] font-semibold uppercase tracking-wider text-indigo-700">Sample Item:</span>
+              <a id="banner-item-link" href="https://www.wikidata.org/wiki/Q42" target="_blank" rel="noopener" class="text-xs font-bold text-slate-900 hover:text-indigo-700 underline decoration-indigo-300 underline-offset-2">
+                Douglas Adams (Q42) ↗
+              </a>
+              <span id="banner-item-desc" class="text-xs text-slate-500"></span>
+            </div>
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="text-[11px] font-medium text-slate-600">Shared <code class="text-indigo-700 font-mono">P31</code> (instance of) classes:</span>
+              <div id="banner-p31-list" class="flex flex-wrap gap-1.5"></div>
+            </div>
+          </div>
+        </div>
+
         <!-- Results Header & Controls Bar -->
         <div class="p-4 sm:p-5 border-b border-slate-200 space-y-4">
           <div class="flex flex-wrap items-center justify-between gap-3">
@@ -380,6 +457,7 @@ wd:Q36180.
 
     // Application State
     const state = {
+      inputMode: 'sparql',  // 'sparql' | 'sample'
       results: [],          // Full parsed list: { uri, id, numId, label, count, share }
       filteredResults: [],  // Filtered by search text
       viewMode: 'visual',   // 'visual' | 'table'
@@ -393,6 +471,18 @@ wd:Q36180.
 
     // DOM References
     const dom = {
+      modeTabSparql: document.getElementById('mode-tab-sparql'),
+      modeTabSample: document.getElementById('mode-tab-sample'),
+      panelModeSparql: document.getElementById('panel-mode-sparql'),
+      panelModeSample: document.getElementById('panel-mode-sample'),
+      wdSearchInput: document.getElementById('wd-search-input'),
+      wdSearchResults: document.getElementById('wd-search-results'),
+      sampleQidInput: document.getElementById('sample-qid-input'),
+      sampleLimitToggle: document.getElementById('sample-limit-toggle'),
+      sampleContextBanner: document.getElementById('sample-context-banner'),
+      bannerItemLink: document.getElementById('banner-item-link'),
+      bannerItemDesc: document.getElementById('banner-item-desc'),
+      bannerP31List: document.getElementById('banner-p31-list'),
       presetSelect: document.getElementById('preset-select'),
       sparqlInput: document.getElementById('sparql-input'),
       targetVar: document.getElementById('target-var'),
@@ -428,6 +518,73 @@ wd:Q36180.
     };
 
     /**
+     * Extracts a clean QID (e.g. "Q42") from user input like "Q42", "q42", or "https://www.wikidata.org/wiki/Q42"
+     */
+    function parseSampleQid(rawInput) {
+      const match = (rawInput || '').trim().match(/\b(Q\d+)\b/i);
+      return match ? match[1].toUpperCase() : null;
+    }
+
+    /**
+     * Fetches the sample item's label, description, and P31 (instance of) classes via the Wikidata Action API
+     */
+    async function fetchAndRenderSampleMetadata(qid, lang) {
+      try {
+        const apiUrl = `https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${qid}&props=labels|descriptions|claims&languages=${encodeURIComponent(lang)}|en&format=json&origin=*`;
+        const res = await fetch(apiUrl);
+        if (!res.ok) return;
+        const json = await res.json();
+        const entity = json?.entities?.[qid];
+        if (!entity || entity.missing !== undefined) return;
+
+        const itemLabel = entity.labels?.[lang]?.value || entity.labels?.en?.value || qid;
+        const itemDesc = entity.descriptions?.[lang]?.value || entity.descriptions?.en?.value || '';
+
+        // Extract P31 target QIDs
+        const p31Claims = entity.claims?.P31 || [];
+        const p31Qids = [...new Set(
+          p31Claims
+            .map(c => c?.mainsnak?.datavalue?.value?.id)
+            .filter(Boolean)
+        )];
+
+        // Fetch labels for all P31 classes if any exist
+        let classLabels = {};
+        if (p31Qids.length > 0) {
+          const classRes = await fetch(`https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${p31Qids.join('|')}&props=labels&languages=${encodeURIComponent(lang)}|en&format=json&origin=*`);
+          if (classRes.ok) {
+            const classJson = await classRes.json();
+            for (const cid of p31Qids) {
+              const cEnt = classJson?.entities?.[cid];
+              classLabels[cid] = cEnt?.labels?.[lang]?.value || cEnt?.labels?.en?.value || cid;
+            }
+          }
+        }
+
+        // Update Banner UI
+        dom.bannerItemLink.href = `https://www.wikidata.org/wiki/${qid}`;
+        dom.bannerItemLink.textContent = `${itemLabel} (${qid}) ↗`;
+        dom.bannerItemDesc.textContent = itemDesc ? `— ${itemDesc}` : '';
+
+        if (p31Qids.length === 0) {
+          dom.bannerP31List.innerHTML = `<span class="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">No P31 (instance of) statements found on ${qid}</span>`;
+        } else {
+          dom.bannerP31List.innerHTML = p31Qids.map(cid => `
+            <a href="https://www.wikidata.org/wiki/${cid}" target="_blank" rel="noopener"
+               class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white hover:bg-indigo-100 text-xs font-medium text-indigo-800 border border-indigo-200 shadow-2xs transition">
+              <span>${escapeHtml(classLabels[cid] || cid)}</span>
+              <span class="code-font text-[10px] text-indigo-500">(${cid})</span>
+            </a>
+          `).join('');
+        }
+
+        dom.sampleContextBanner.classList.remove('hidden');
+      } catch (e) {
+        console.warn('Could not load sample entity metadata:', e);
+      }
+    }
+
+    /**
      * Automatically detects the first SELECT variable (e.g., ?person) from user query
      */
     function detectTargetVariable(queryText) {
@@ -440,22 +597,45 @@ wd:Q36180.
     }
 
     /**
-     * Builds the complete outer SPARQL query embedding the user's inner query
+     * Builds the complete outer SPARQL query for either Custom SPARQL mode or Sample Item (P31) mode
      */
     function buildFullQuery() {
+      const lang = (dom.labelLang.value.trim() || 'en').replace(/[^a-zA-Z0-9-]/g, '');
+      const endpointKey = dom.endpointSelect.value;
+
+      // QLever supports the concise `@en@rdfs:label` syntax;
+      // Official WDQS requires standard SPARQL `rdfs:label ?propertyLabel . FILTER(LANG(?propertyLabel) = "en")`
+      const labelPattern = endpointKey === 'qlever'
+        ? `?property @${lang}@rdfs:label ?propertyLabel .`
+        : `?property rdfs:label ?propertyLabel .\n  FILTER(LANG(?propertyLabel) = "${lang}")`;
+
+      if (state.inputMode === 'sample') {
+        const qid = parseSampleQid(dom.sampleQidInput.value) || 'Q42';
+        const limitClause = dom.sampleLimitToggle.checked ? '\n    LIMIT 50000' : '';
+
+        return `PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+PREFIX wd: <http://www.wikidata.org/entity/>
+PREFIX wikibase: <http://wikiba.se/ontology#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?property ?propertyLabel (COUNT(*) AS ?n) {
+  {
+    SELECT DISTINCT ?item WHERE {
+      wd:${qid} wdt:P31 ?type .
+      ?item wdt:P31 ?type .
+    }${limitClause}
+  }
+  ?item ?p [] .
+  ?property wikibase:directClaim ?p .
+  ${labelPattern}
+} GROUP BY ?property ?propertyLabel ORDER BY DESC(?n)`;
+      }
+
+      // Default: Custom SPARQL Query mode
       const innerQuery = dom.sparqlInput.value.trim();
       let targetVar = dom.targetVar.value.trim();
       if (!targetVar.startsWith('?') && !targetVar.startsWith('$')) {
         targetVar = '?' + (targetVar || 'person');
       }
-      const lang = (dom.labelLang.value.trim() || 'en').replace(/[^a-zA-Z0-9-]/g, '');
-      const endpointKey = dom.endpointSelect.value;
-
-      // QLever supports the concise `@en@rdfs:label` syntax requested by the user;
-      // Official WDQS requires standard SPARQL `rdfs:label ?propertyLabel . FILTER(LANG(?propertyLabel) = "en")`
-      const labelPattern = endpointKey === 'qlever'
-        ? `?property @${lang}@rdfs:label ?propertyLabel .`
-        : `?property rdfs:label ?propertyLabel .\n  FILTER(LANG(?propertyLabel) = "${lang}")`;
 
       return `PREFIX wdt: <http://www.wikidata.org/prop/direct/>
 PREFIX wd: <http://www.wikidata.org/entity/>
@@ -475,10 +655,23 @@ ${labelPattern}
      * Executes the embedded SPARQL query against the selected endpoint
      */
     async function executeQuery() {
-      const innerQuery = dom.sparqlInput.value.trim();
-      if (!innerQuery) {
-        showError('Please enter a SPARQL SELECT query first.');
-        return;
+      const lang = (dom.labelLang.value.trim() || 'en').replace(/[^a-zA-Z0-9-]/g, '');
+
+      if (state.inputMode === 'sample') {
+        const qid = parseSampleQid(dom.sampleQidInput.value);
+        if (!qid) {
+          showError('Please enter a valid Wikidata QID (e.g., Q42) or Wikidata item URL.');
+          return;
+        }
+        // Fetch sample item label and P31 classes concurrently
+        fetchAndRenderSampleMetadata(qid, lang);
+      } else {
+        dom.sampleContextBanner.classList.add('hidden');
+        const innerQuery = dom.sparqlInput.value.trim();
+        if (!innerQuery) {
+          showError('Please enter a SPARQL SELECT query first.');
+          return;
+        }
       }
 
       hideError();
@@ -862,108 +1055,109 @@ ${labelPattern}
           </tr>`;
         return;
       }
+    // Event Listeners: Input Mode Switching (Custom SPARQL vs Sample Item P31)
+    function switchInputMode(mode) {
+      state.inputMode = mode;
+      const isSparql = mode === 'sparql';
 
-      dom.tableBody.innerHTML = sorted.map(item => {
-        const barPct = Math.max(2, Math.round((item.count / maxCount) * 100));
-        return `
-          <tr class="hover:bg-indigo-50/40 transition-colors">
-            <td class="py-2.5 px-4 text-slate-400 font-mono">${item.rank}</td>
-            <td class="py-2.5 px-4 font-mono">
-              <a href="${item.pageUrl}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 hover:bg-indigo-100 text-indigo-700 font-medium transition">
-                ${escapeHtml(item.id)}
-              </a>
-            </td>
-            <td class="py-2.5 px-4 font-medium text-slate-800">
-              <a href="${item.pageUrl}" target="_blank" rel="noopener" class="hover:text-indigo-600 hover:underline inline-flex items-center gap-1.5">
-                <span>${escapeHtml(item.label)}</span>
-                <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
-                </svg>
-              </a>
-            </td>
-            <td class="py-2.5 px-4 text-right font-mono font-semibold text-slate-900">
-              ${item.count.toLocaleString()}
-            </td>
-            <td class="py-2.5 px-4">
-              <div class="flex items-center gap-2">
-                <div class="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                  <div class="h-full bg-indigo-600 rounded-full" style="width: ${barPct}%"></div>
+      dom.modeTabSparql.classList.toggle('bg-white', isSparql);
+      dom.modeTabSparql.classList.toggle('text-indigo-700', isSparql);
+      dom.modeTabSparql.classList.toggle('shadow-xs', isSparql);
+      dom.modeTabSparql.classList.toggle('text-slate-600', !isSparql);
+      dom.modeTabSparql.setAttribute('aria-selected', String(isSparql));
+
+      dom.modeTabSample.classList.toggle('bg-white', !isSparql);
+      dom.modeTabSample.classList.toggle('text-indigo-700', !isSparql);
+      dom.modeTabSample.classList.toggle('shadow-xs', !isSparql);
+      dom.modeTabSample.classList.toggle('text-slate-600', isSparql);
+      dom.modeTabSample.setAttribute('aria-selected', String(!isSparql));
+
+      dom.panelModeSparql.classList.toggle('hidden', !isSparql);
+      dom.panelModeSample.classList.toggle('hidden', isSparql);
+
+      if (isSparql) {
+        dom.sampleContextBanner.classList.add('hidden');
+      }
+    }
+
+    dom.modeTabSparql.addEventListener('click', () => switchInputMode('sparql'));
+    dom.modeTabSample.addEventListener('click', () => {
+      switchInputMode('sample');
+      executeQuery();
+    });
+
+    // Live Wikidata Entity Autocomplete Search in Sample Item Mode
+    let wdSearchTimer;
+    dom.wdSearchInput.addEventListener('input', (e) => {
+      const term = e.target.value.trim();
+      clearTimeout(wdSearchTimer);
+      if (term.length < 2) {
+        dom.wdSearchResults.classList.add('hidden');
+        return;
+      }
+
+      wdSearchTimer = setTimeout(async () => {
+        try {
+          const lang = (dom.labelLang.value.trim() || 'en').replace(/[^a-zA-Z0-9-]/g, '');
+          const url = `https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(term)}&language=${encodeURIComponent(lang)}&uselang=${encodeURIComponent(lang)}&limit=7&format=json&origin=*`;
+          const res = await fetch(url);
+          if (!res.ok) return;
+          const data = await res.json();
+          const hits = data.search || [];
+
+          if (hits.length === 0) {
+            dom.wdSearchResults.innerHTML = `<div class="p-3 text-xs text-slate-400">No Wikidata items found for "${escapeHtml(term)}"</div>`;
+          } else {
+            dom.wdSearchResults.innerHTML = hits.map(hit => `
+              <button type="button" data-qid="${hit.id}" class="wd-hit-btn w-full text-left px-3 py-2 hover:bg-indigo-50 transition flex items-start justify-between gap-2">
+                <div class="min-w-0">
+                  <div class="text-xs font-semibold text-slate-900 truncate">${escapeHtml(hit.label || hit.id)}</div>
+                  <div class="text-[11px] text-slate-500 truncate">${escapeHtml(hit.description || 'No description')}</div>
                 </div>
-                <span class="text-[11px] font-mono text-slate-500 w-12 text-right">${item.share.toFixed(1)}%</span>
-              </div>
-            </td>
-          </tr>
-        `;
-      }).join('');
-    }
+                <span class="code-font text-[10px] font-medium bg-slate-100 text-indigo-700 px-1.5 py-0.5 rounded shrink-0">${hit.id}</span>
+              </button>
+            `).join('');
+          }
+          dom.wdSearchResults.classList.remove('hidden');
+        } catch (err) {
+          console.error('Wikidata search failed:', err);
+        }
+      }, 260);
+    });
 
-    // Tooltip Helpers
-    function showTooltip(event, item) {
-      dom.ttLabel.textContent = item.label;
-      dom.ttPid.textContent = item.id;
-      dom.ttCount.textContent = item.count.toLocaleString();
-      dom.ttShare.textContent = `${item.share.toFixed(2)}%`;
-      dom.tooltip.classList.remove('opacity-0');
-      moveTooltip(event);
-    }
+    dom.wdSearchResults.addEventListener('click', (e) => {
+      const btn = e.target.closest('.wd-hit-btn');
+      if (!btn) return;
+      const qid = btn.dataset.qid;
+      dom.sampleQidInput.value = qid;
+      dom.wdSearchInput.value = '';
+      dom.wdSearchResults.classList.add('hidden');
+      executeQuery();
+    });
 
-    function moveTooltip(event) {
-      const pad = 14;
-      const ttRect = dom.tooltip.getBoundingClientRect();
-      let left = event.clientX + pad;
-      let top = event.clientY + pad;
-
-      if (left + ttRect.width > window.innerWidth - 12) {
-        left = event.clientX - ttRect.width - pad;
+    // Close autocomplete dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!dom.wdSearchInput.contains(e.target) && !dom.wdSearchResults.contains(e.target)) {
+        dom.wdSearchResults.classList.add('hidden');
       }
-      if (top + ttRect.height > window.innerHeight - 12) {
-        top = event.clientY - ttRect.height - pad;
+    });
+
+    // Quick Sample Item Preset Buttons
+    document.querySelectorAll('.sample-preset-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        dom.sampleQidInput.value = btn.dataset.qid;
+        executeQuery();
+      });
+    });
+
+    // Allow pressing Enter in Sample QID field to run immediately
+    dom.sampleQidInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        executeQuery();
       }
+    });
 
-      dom.tooltip.style.left = `${left}px`;
-      dom.tooltip.style.top = `${top}px`;
-    }
-
-    function hideTooltip() {
-      dom.tooltip.classList.add('opacity-0');
-    }
-
-    // UI Helpers
-    function setLoading(isLoading) {
-      dom.btnRun.disabled = isLoading;
-      dom.runIcon.classList.toggle('hidden', isLoading);
-      dom.loadingSpinner.classList.toggle('hidden', !isLoading);
-      dom.runBtnText.textContent = isLoading ? 'Querying Endpoint...' : 'Analyze Properties';
-    }
-
-    function showError(msg) {
-      dom.errorMessage.textContent = msg;
-      dom.errorBox.classList.remove('hidden');
-    }
-
-    function hideError() {
-      dom.errorBox.classList.add('hidden');
-    }
-
-    function escapeHtml(str) {
-      const div = document.createElement('div');
-      div.textContent = str;
-      return div.innerHTML;
-    }
-
-    function triggerDownload(filename, content, mimeType) {
-      const blob = new Blob([content], { type: mimeType });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-    }
-
-    // Event Listeners
     dom.sparqlInput.addEventListener('input', () => {
       const detected = detectTargetVariable(dom.sparqlInput.value);
       if (detected) {

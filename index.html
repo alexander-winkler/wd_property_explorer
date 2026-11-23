@@ -3,89 +3,63 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Wikidata SPARQL Property Explorer</title>
-  
+  <title>Wikidata SPARQL Property Usage Explorer</title>
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
-  
+  <!-- D3.js for interactive visualizations -->
+  <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
   <!-- Google Fonts: Inter & JetBrains Mono -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  
-  <!-- D3.js v7 for interactive Bubble/Treemap/Bar visualizations -->
-  <script src="https://d3js.org/d3.v7.min.js"></script>
-
-  <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          fontFamily: {
-            sans: ['Inter', 'sans-serif'],
-            mono: ['JetBrains Mono', 'monospace'],
-          },
-        }
-      }
-    }
-  </script>
-
   <style>
     body {
-      font-family: 'Inter', sans-serif;
-      background-color: #f8fafc;
-      color: #0f172a;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
-    .code-font {
+    code, pre, textarea.code-font, input.code-font {
       font-family: 'JetBrains Mono', monospace;
     }
-    /* Custom scrollbar for code blocks and tables */
-    ::-webkit-scrollbar {
-      width: 8px;
-      height: 8px;
-    }
-    ::-webkit-scrollbar-track {
-      background: #f1f5f9;
-      border-radius: 4px;
-    }
-    ::-webkit-scrollbar-thumb {
-      background: #cbd5e1;
-      border-radius: 4px;
-    }
-    ::-webkit-scrollbar-thumb:hover {
-      background: #94a3b8;
-    }
-    /* D3 Tooltip styling */
+    /* Smooth tooltip transition */
     #chart-tooltip {
+      transition: opacity 0.12s ease, transform 0.12s ease;
       pointer-events: none;
-      transition: opacity 0.15s ease, transform 0.1s ease;
     }
+    /* Hover highlight on SVG nodes */
     .node-group {
       cursor: pointer;
-      transition: filter 0.15s ease;
+      transition: opacity 0.15s ease;
     }
     .node-group:hover {
-      filter: brightness(1.06);
+      opacity: 0.88;
     }
   </style>
 </head>
-<body class="min-h-screen flex flex-col">
+<body class="bg-slate-50 text-slate-800 min-h-screen flex flex-col">
 
-  <!-- Top Navigation Header -->
+  <!-- Top Navigation Bar -->
   <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
       <div class="flex items-center gap-3">
-        <div class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-          </svg>
+        <div class="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-bold shadow-sm">
+          WD
         </div>
         <div>
-          <h1 class="text-base sm:text-lg font-bold text-slate-900 leading-tight">Wikidata Property Usage Explorer</h1>
-          <p class="text-xs text-slate-500 hidden sm:block">Analyze direct truthy properties (<code class="text-indigo-600 font-mono">wdt:*</code>) across any SPARQL entity set</p>
+          <h1 class="text-base sm:text-lg font-bold text-slate-900 leading-tight">
+            Wikidata Property Usage Explorer
+          </h1>
+          <p class="text-xs text-slate-500 hidden sm:block">
+            Analyze property frequencies across SPARQL entity results or similar P31 items
+          </p>
         </div>
       </div>
 
       <div class="flex items-center gap-2">
+        <button id="btn-share-request" type="button" title="Copy a shareable link for the current request" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition">
+          <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M7.217 10.907a2.25 2.25 0 100 2.186m0-2.186c.18.324.283.696.283 1.093s-.103.77-.283 1.093m0-2.186l9.566-5.314m-9.566 7.5l9.566 5.314m0 0a2.25 2.25 0 103.935 2.186 2.25 2.25 0 00-3.935-2.186zm0-12.814a2.25 2.25 0 103.933-2.185 2.25 2.25 0 00-3.933 2.185z" />
+          </svg>
+          <span id="share-btn-text">Share</span>
+        </button>
         <button id="btn-inspect-query" type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition">
           <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
@@ -105,7 +79,7 @@
   <!-- Main Content Grid -->
   <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
     <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-      
+
       <!-- Left Column: SPARQL Query Input & Settings (4 cols on lg) -->
       <section class="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
         <div class="flex items-center justify-between">
@@ -252,7 +226,7 @@ wd:Q36180.
 
       <!-- Right Column: Visualization & Tabular Output (8 cols on lg) -->
       <section class="lg:col-span-8 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-[600px]">
-        
+
         <!-- Sample Item & Shared P31 Context Banner (Shown in Sample Item mode) -->
         <div id="sample-context-banner" class="hidden px-5 py-3.5 bg-indigo-50/70 border-b border-indigo-100 flex flex-wrap items-center justify-between gap-3">
           <div class="space-y-1">
@@ -330,7 +304,7 @@ wd:Q36180.
             <span>Click any property to open its Wikidata entity page in a new tab</span>
             <span id="visual-showing-badge" class="font-medium text-slate-600"></span>
           </div>
-          
+
           <div id="chart-canvas-wrapper" class="flex-1 w-full min-h-[480px] rounded-xl bg-slate-50/70 border border-slate-100 relative overflow-hidden flex items-center justify-center">
             <!-- D3 SVG renders here -->
             <div id="empty-state" class="text-center p-8 max-w-sm">
@@ -553,8 +527,122 @@ wd:Q36180.
       ttShare: document.getElementById('tt-share'),
       queryModal: document.getElementById('query-modal'),
       fullQueryPreview: document.getElementById('full-query-preview'),
-      copyFeedback: document.getElementById('copy-feedback')
+      copyFeedback: document.getElementById('copy-feedback'),
+      btnShareRequest: document.getElementById('btn-share-request'),
+      shareBtnText: document.getElementById('share-btn-text')
     };
+
+    /**
+     * Copies text to clipboard using execCommand fallback (works inside sandboxed iFrames)
+     */
+    function copyToClipboard(text) {
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(text).catch(() => {});
+      }
+      const temp = document.createElement('textarea');
+      temp.value = text;
+      temp.setAttribute('readonly', '');
+      temp.style.position = 'absolute';
+      temp.style.left = '-9999px';
+      document.body.appendChild(temp);
+      temp.select();
+      try {
+        document.execCommand('copy');
+      } catch (err) {
+        console.warn('Clipboard copy failed:', err);
+      }
+      document.body.removeChild(temp);
+    }
+
+    /**
+     * Encodes the current request and view state into the URL hash and returns the shareable URL
+     */
+    function buildShareUrl() {
+      const payload = {
+        mode: state.inputMode,
+        query: dom.sparqlInput.value,
+        targetVar: dom.targetVar.value.trim() || '?person',
+        sampleQid: parseSampleQid(dom.sampleQidInput.value) || dom.sampleQidInput.value.trim(),
+        sampleLimit: dom.sampleLimitToggle.checked,
+        lang: dom.labelLang.value.trim() || 'en',
+        endpoint: dom.endpointSelect.value,
+        view: state.activeView,
+        chart: state.chartType,
+        limit: state.limit
+      };
+
+      const encoded = encodeURIComponent(JSON.stringify(payload));
+      const shareUrl = `${window.location.origin}${window.location.pathname}#req=${encoded}`;
+
+      try {
+        history.replaceState(null, '', `#req=${encoded}`);
+      } catch (e) {
+        window.location.hash = `req=${encoded}`;
+      }
+
+      return shareUrl;
+    }
+
+    /**
+     * Restores request state from the URL hash if present
+     */
+    function restoreStateFromHash() {
+      const hash = window.location.hash || '';
+      if (!hash.startsWith('#req=')) return false;
+
+      try {
+        const raw = decodeURIComponent(hash.slice(5));
+        const data = JSON.parse(raw);
+        if (!data || typeof data !== 'object') return false;
+
+        if (typeof data.lang === 'string' && data.lang.trim()) {
+          dom.labelLang.value = data.lang.trim();
+        }
+        if (data.endpoint === 'qlever' || data.endpoint === 'wdqs') {
+          dom.endpointSelect.value = data.endpoint;
+        }
+        if (typeof data.query === 'string') {
+          dom.sparqlInput.value = data.query;
+        }
+        if (typeof data.targetVar === 'string' && data.targetVar.trim()) {
+          dom.targetVar.value = data.targetVar.trim();
+          dom.inlineVarPreview.textContent = data.targetVar.trim();
+        }
+        if (typeof data.sampleQid === 'string' && data.sampleQid.trim()) {
+          dom.sampleQidInput.value = data.sampleQid.trim();
+        }
+        if (typeof data.sampleLimit === 'boolean') {
+          dom.sampleLimitToggle.checked = data.sampleLimit;
+        }
+        if (data.chart === 'bubbles' || data.chart === 'bars' || data.chart === 'treemap') {
+          state.chartType = data.chart;
+          document.querySelectorAll('.chart-type-btn').forEach(b => {
+            const active = b.getAttribute('data-chart') === state.chartType;
+            b.className = active
+              ? 'chart-type-btn px-2.5 py-1 text-xs font-medium rounded-lg bg-white text-slate-900 shadow-xs transition'
+              : 'chart-type-btn px-2.5 py-1 text-xs font-medium rounded-lg text-slate-600 hover:text-slate-900 transition';
+          });
+        }
+        if (data.limit !== undefined) {
+          state.limit = data.limit;
+          dom.limitSelect.value = String(data.limit);
+        }
+        if (data.view === 'visual' || data.view === 'table') {
+          state.activeView = data.view;
+          if (state.activeView === 'table') {
+            dom.tabTable.click();
+          }
+        }
+        if (data.mode === 'sample' || data.mode === 'sparql') {
+          switchInputMode(data.mode);
+        }
+
+        return true;
+      } catch (err) {
+        console.warn('Could not parse shared state from URL hash:', err);
+        return false;
+      }
+    }
 
     /**
      * Switches between 'sparql' (Custom SPARQL) and 'sample' (Sample Item via P31) modes
@@ -975,7 +1063,7 @@ ${labelPattern}
     function renderBubbleChart(data, width, height) {
       const colorScale = d3.scaleSequential()
         .domain([0, Math.max(data.length - 1, 1)])
-        .interpolator(t => d3.interpolatePurples(0.85 - t * 0.55));
+        .interpolator(t => d3.interpolatePurples(0.88 - t * 0.52));
 
       const root = d3.hierarchy({ children: data })
         .sum(d => d.count);
@@ -1509,15 +1597,28 @@ ${labelPattern}
       // Copy SPARQL query to clipboard
       document.getElementById('btn-copy-query').addEventListener('click', () => {
         const text = buildFullQuery();
-        const temp = document.createElement('textarea');
-        temp.value = text;
-        document.body.appendChild(temp);
-        temp.select();
-        document.execCommand('copy');
-        document.body.removeChild(temp);
+        copyToClipboard(text);
 
         dom.copyFeedback.classList.remove('opacity-0');
         setTimeout(() => dom.copyFeedback.classList.add('opacity-0'), 2000);
+      });
+
+      // Share current request link
+      let shareResetTimer = null;
+      dom.btnShareRequest.addEventListener('click', () => {
+        const shareUrl = buildShareUrl();
+        copyToClipboard(shareUrl);
+
+        dom.shareBtnText.textContent = 'Link Copied!';
+        dom.btnShareRequest.classList.remove('text-slate-700', 'bg-slate-100', 'hover:bg-slate-200');
+        dom.btnShareRequest.classList.add('text-emerald-700', 'bg-emerald-50', 'border', 'border-emerald-200');
+
+        clearTimeout(shareResetTimer);
+        shareResetTimer = setTimeout(() => {
+          dom.shareBtnText.textContent = 'Share';
+          dom.btnShareRequest.classList.remove('text-emerald-700', 'bg-emerald-50', 'border', 'border-emerald-200');
+          dom.btnShareRequest.classList.add('text-slate-700', 'bg-slate-100', 'hover:bg-slate-200');
+        }, 2200);
       });
 
       // Download standalone index.html
@@ -1541,6 +1642,7 @@ ${labelPattern}
     // Initialize on load and run the default writers query immediately
     window.addEventListener('DOMContentLoaded', () => {
       initEventListeners();
+      restoreStateFromHash();
       runPropertyAnalysis();
     });
   </script>

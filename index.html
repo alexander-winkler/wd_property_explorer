@@ -75,7 +75,6 @@
     <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
       <div class="flex items-center gap-3">
         <div class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
-          <!-- Wikidata-inspired bar/graph icon -->
           <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
           </svg>
@@ -423,8 +422,9 @@ wd:Q36180.
   <script>
     /**
      * Wikidata SPARQL Property Usage Explorer
-     * Embeds a user-supplied SPARQL SELECT query into an outer aggregation query
-     * to count truthy direct claims (wdt:*) and renders interactive D3 charts or tables.
+     * Supports two modes:
+     * 1) Custom SPARQL subquery wrapping
+     * 2) Single Sample Item similarity analysis (via shared P31 "instance of" classes)
      */
 
     const PRESETS = {
@@ -455,38 +455,78 @@ wd:Q36180.
       wdqs: 'https://query.wikidata.org/sparql'
     };
 
+    // Standard Wikidata & Semantic Web PREFIX declarations injected into the outer query
+    const STANDARD_PREFIXES = [
+      'PREFIX wd: <http://www.wikidata.org/entity/>',
+      'PREFIX wdt: <http://www.wikidata.org/prop/direct/>',
+      'PREFIX wdtn: <http://www.wikidata.org/prop/direct-normalized/>',
+      'PREFIX wds: <http://www.wikidata.org/entity/statement/>',
+      'PREFIX wdv: <http://www.wikidata.org/value/>',
+      'PREFIX wdref: <http://www.wikidata.org/reference/>',
+      'PREFIX p: <http://www.wikidata.org/prop/>',
+      'PREFIX ps: <http://www.wikidata.org/prop/statement/>',
+      'PREFIX psv: <http://www.wikidata.org/prop/statement/value/>',
+      'PREFIX psn: <http://www.wikidata.org/prop/statement/value-normalized/>',
+      'PREFIX pq: <http://www.wikidata.org/prop/qualifier/>',
+      'PREFIX pqv: <http://www.wikidata.org/prop/qualifier/value/>',
+      'PREFIX pqn: <http://www.wikidata.org/prop/qualifier/value-normalized/>',
+      'PREFIX pr: <http://www.wikidata.org/prop/reference/>',
+      'PREFIX prv: <http://www.wikidata.org/prop/reference/value/>',
+      'PREFIX prn: <http://www.wikidata.org/prop/reference/value-normalized/>',
+      'PREFIX wdno: <http://www.wikidata.org/prop/novalue/>',
+      'PREFIX wdata: <http://www.wikidata.org/wiki/Special:EntityData/>',
+      'PREFIX wikibase: <http://wikiba.se/ontology#>',
+      'PREFIX bd: <http://www.bigdata.com/rdf#>',
+      'PREFIX rdf: <http://www.w3.org/1999/02/22-rdf-syntax-ns#>',
+      'PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>',
+      'PREFIX owl: <http://www.w3.org/2002/07/owl#>',
+      'PREFIX xsd: <http://www.w3.org/2001/XMLSchema#>',
+      'PREFIX skos: <http://www.w3.org/2004/02/skos/core#>',
+      'PREFIX schema: <http://schema.org/>',
+      'PREFIX dct: <http://purl.org/dc/terms/>',
+      'PREFIX prov: <http://www.w3.org/ns/prov#>',
+      'PREFIX geo: <http://www.opengis.net/ont/geosparql#>',
+      'PREFIX geof: <http://www.opengis.net/def/function/geosparql/>'
+    ].join('\n');
+
     // Application State
     const state = {
-      inputMode: 'sparql',  // 'sparql' | 'sample'
-      results: [],          // Full parsed list: { uri, id, numId, label, count, share }
-      filteredResults: [],  // Filtered by search text
-      viewMode: 'visual',   // 'visual' | 'table'
-      chartType: 'bubbles', // 'bubbles' | 'bars' | 'treemap'
-      limit: 50,            // Number or 'all'
-      searchTerm: '',
-      sortCol: 'count',
-      sortAsc: false,
-      totalStatements: 0
+      inputMode: 'sparql',    // 'sparql' | 'sample'
+      results: [],            // Normalized array of { rank, id, uri, url, label, count, share }
+      totalStatements: 0,
+      sampleMetadata: null,   // { qid, label, description, p31Classes: [{ id, label }] }
+      activeView: 'visual',   // 'visual' | 'table'
+      chartType: 'bubbles',   // 'bubbles' | 'bars' | 'treemap'
+      filterText: '',
+      limit: 50,
+      sortBy: 'count',
+      sortDir: 'desc',
+      isLoading: false
     };
 
-    // DOM References
+    // DOM Element References
     const dom = {
       modeTabSparql: document.getElementById('mode-tab-sparql'),
       modeTabSample: document.getElementById('mode-tab-sample'),
       panelModeSparql: document.getElementById('panel-mode-sparql'),
       panelModeSample: document.getElementById('panel-mode-sample'),
-      wdSearchInput: document.getElementById('wd-search-input'),
-      wdSearchResults: document.getElementById('wd-search-results'),
-      sampleQidInput: document.getElementById('sample-qid-input'),
-      sampleLimitToggle: document.getElementById('sample-limit-toggle'),
-      sampleContextBanner: document.getElementById('sample-context-banner'),
-      bannerItemLink: document.getElementById('banner-item-link'),
-      bannerItemDesc: document.getElementById('banner-item-desc'),
-      bannerP31List: document.getElementById('banner-p31-list'),
+
       presetSelect: document.getElementById('preset-select'),
       sparqlInput: document.getElementById('sparql-input'),
       targetVar: document.getElementById('target-var'),
       inlineVarPreview: document.getElementById('inline-var-preview'),
+
+      wdSearchInput: document.getElementById('wd-search-input'),
+      wdSearchResults: document.getElementById('wd-search-results'),
+      sampleQidInput: document.getElementById('sample-qid-input'),
+      sampleLimitToggle: document.getElementById('sample-limit-toggle'),
+      samplePresetBtns: document.querySelectorAll('.sample-preset-btn'),
+
+      sampleContextBanner: document.getElementById('sample-context-banner'),
+      bannerItemLink: document.getElementById('banner-item-link'),
+      bannerItemDesc: document.getElementById('banner-item-desc'),
+      bannerP31List: document.getElementById('banner-p31-list'),
+
       labelLang: document.getElementById('label-lang'),
       endpointSelect: document.getElementById('endpoint-select'),
       btnRun: document.getElementById('btn-run-query'),
@@ -499,10 +539,9 @@ wd:Q36180.
       tabVisual: document.getElementById('tab-visual'),
       tabTable: document.getElementById('tab-table'),
       visualSubcontrols: document.getElementById('visual-subcontrols'),
-      visualContainer: document.getElementById('visual-view-container'),
-      tableContainer: document.getElementById('table-view-container'),
+      visualViewContainer: document.getElementById('visual-view-container'),
+      tableViewContainer: document.getElementById('table-view-container'),
       chartWrapper: document.getElementById('chart-canvas-wrapper'),
-      emptyState: document.getElementById('empty-state'),
       visualShowingBadge: document.getElementById('visual-showing-badge'),
       filterInput: document.getElementById('filter-input'),
       limitSelect: document.getElementById('limit-select'),
@@ -518,82 +557,175 @@ wd:Q36180.
     };
 
     /**
-     * Extracts a clean QID (e.g. "Q42") from user input like "Q42", "q42", or "https://www.wikidata.org/wiki/Q42"
+     * Switches between 'sparql' (Custom SPARQL) and 'sample' (Sample Item via P31) modes
      */
-    function parseSampleQid(rawInput) {
-      const match = (rawInput || '').trim().match(/\b(Q\d+)\b/i);
-      return match ? match[1].toUpperCase() : null;
+    function switchInputMode(mode) {
+      state.inputMode = mode;
+      const isSparql = mode === 'sparql';
+
+      dom.modeTabSparql.setAttribute('aria-selected', isSparql);
+      dom.modeTabSample.setAttribute('aria-selected', !isSparql);
+
+      dom.modeTabSparql.className = isSparql
+        ? 'py-1.5 px-2.5 text-xs font-semibold rounded-lg bg-white text-indigo-700 shadow-xs transition'
+        : 'py-1.5 px-2.5 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-900 transition';
+
+      dom.modeTabSample.className = !isSparql
+        ? 'py-1.5 px-2.5 text-xs font-semibold rounded-lg bg-white text-indigo-700 shadow-xs transition'
+        : 'py-1.5 px-2.5 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-900 transition';
+
+      dom.panelModeSparql.classList.toggle('hidden', !isSparql);
+      dom.panelModeSample.classList.toggle('hidden', isSparql);
+      dom.sampleContextBanner.classList.toggle('hidden', isSparql || !state.sampleMetadata);
     }
 
     /**
-     * Fetches the sample item's label, description, and P31 (instance of) classes via the Wikidata Action API
+     * Extracts a clean Wikidata QID (e.g., "Q42") from a QID string or Wikidata URL
      */
-    async function fetchAndRenderSampleMetadata(qid, lang) {
+    function parseSampleQid(raw) {
+      if (!raw) return null;
+      const match = raw.trim().toUpperCase().match(/\b(Q[1-9][0-9]*)\b/);
+      return match ? match[1] : null;
+    }
+
+    /**
+     * Searches Wikidata entities via the MediaWiki wbsearchentities API (CORS-enabled)
+     */
+    let searchDebounceTimer = null;
+    async function searchWikidataEntities(searchTerm) {
+      const term = searchTerm.trim();
+      if (!term) {
+        dom.wdSearchResults.classList.add('hidden');
+        dom.wdSearchResults.innerHTML = '';
+        return;
+      }
+
+      const lang = (dom.labelLang.value.trim() || 'en').replace(/[^a-zA-Z0-9-]/g, '');
+      const url = `https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(term)}&language=${encodeURIComponent(lang)}&uselang=${encodeURIComponent(lang)}&type=item&limit=8&format=json&origin=*`;
+
       try {
-        const apiUrl = `https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${qid}&props=labels|descriptions|claims&languages=${encodeURIComponent(lang)}|en&format=json&origin=*`;
-        const res = await fetch(apiUrl);
+        const res = await fetch(url);
         if (!res.ok) return;
-        const json = await res.json();
-        const entity = json?.entities?.[qid];
-        if (!entity || entity.missing !== undefined) return;
+        const data = await res.json();
+        const items = data.search || [];
 
-        const itemLabel = entity.labels?.[lang]?.value || entity.labels?.en?.value || qid;
-        const itemDesc = entity.descriptions?.[lang]?.value || entity.descriptions?.en?.value || '';
-
-        // Extract P31 target QIDs
-        const p31Claims = entity.claims?.P31 || [];
-        const p31Qids = [...new Set(
-          p31Claims
-            .map(c => c?.mainsnak?.datavalue?.value?.id)
-            .filter(Boolean)
-        )];
-
-        // Fetch labels for all P31 classes if any exist
-        let classLabels = {};
-        if (p31Qids.length > 0) {
-          const classRes = await fetch(`https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${p31Qids.join('|')}&props=labels&languages=${encodeURIComponent(lang)}|en&format=json&origin=*`);
-          if (classRes.ok) {
-            const classJson = await classRes.json();
-            for (const cid of p31Qids) {
-              const cEnt = classJson?.entities?.[cid];
-              classLabels[cid] = cEnt?.labels?.[lang]?.value || cEnt?.labels?.en?.value || cid;
-            }
-          }
+        if (!items.length) {
+          dom.wdSearchResults.innerHTML = `<div class="px-3 py-2.5 text-xs text-slate-500">No matching Wikidata items found.</div>`;
+          dom.wdSearchResults.classList.remove('hidden');
+          return;
         }
 
-        // Update Banner UI
-        dom.bannerItemLink.href = `https://www.wikidata.org/wiki/${qid}`;
-        dom.bannerItemLink.textContent = `${itemLabel} (${qid}) ↗`;
-        dom.bannerItemDesc.textContent = itemDesc ? `— ${itemDesc}` : '';
+        dom.wdSearchResults.innerHTML = items.map(item => `
+          <button type="button" data-qid="${escapeHtml(item.id)}" class="wd-search-item w-full text-left px-3 py-2 hover:bg-indigo-50 transition flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <div class="text-xs font-semibold text-slate-900 truncate">${escapeHtml(item.label || item.id)}</div>
+              <div class="text-[11px] text-slate-500 truncate">${escapeHtml(item.description || 'No description')}</div>
+            </div>
+            <span class="code-font text-[11px] font-medium text-indigo-700 bg-indigo-50 border border-indigo-200 px-1.5 py-0.5 rounded shrink-0">${escapeHtml(item.id)}</span>
+          </button>
+        `).join('');
 
-        if (p31Qids.length === 0) {
-          dom.bannerP31List.innerHTML = `<span class="text-xs text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-md">No P31 (instance of) statements found on ${qid}</span>`;
-        } else {
-          dom.bannerP31List.innerHTML = p31Qids.map(cid => `
-            <a href="https://www.wikidata.org/wiki/${cid}" target="_blank" rel="noopener"
-               class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-white hover:bg-indigo-100 text-xs font-medium text-indigo-800 border border-indigo-200 shadow-2xs transition">
-              <span>${escapeHtml(classLabels[cid] || cid)}</span>
-              <span class="code-font text-[10px] text-indigo-500">(${cid})</span>
-            </a>
-          `).join('');
-        }
+        dom.wdSearchResults.classList.remove('hidden');
 
-        dom.sampleContextBanner.classList.remove('hidden');
-      } catch (e) {
-        console.warn('Could not load sample entity metadata:', e);
+        dom.wdSearchResults.querySelectorAll('.wd-search-item').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const qid = btn.getAttribute('data-qid');
+            dom.sampleQidInput.value = qid;
+            dom.wdSearchInput.value = btn.querySelector('.font-semibold').textContent;
+            dom.wdSearchResults.classList.add('hidden');
+            runPropertyAnalysis();
+          });
+        });
+      } catch (err) {
+        console.warn('Entity search failed:', err);
       }
     }
 
     /**
-     * Automatically detects the first SELECT variable (e.g., ?person) from user query
+     * Fetches the label, description, and P31 (instance of) classes for the chosen sample item
      */
-    function detectTargetVariable(queryText) {
-      const cleaned = queryText.replace(/#.*$/gm, ''); // strip SPARQL comments
-      const selectMatch = cleaned.match(/\bSELECT\b(?:\s+DISTINCT|\s+REDUCED)?\s+([?$][A-Za-z_][A-Za-z0-9_]*)/i);
-      if (selectMatch && selectMatch[1]) {
-        return selectMatch[1].replace('$', '?');
+    async function fetchSampleItemContext(qid, lang) {
+      const url = `https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${encodeURIComponent(qid)}&props=labels|descriptions|claims&languages=${encodeURIComponent(lang)}|en&format=json&origin=*`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`Could not fetch entity metadata for ${qid}`);
+      const data = await res.json();
+      const entity = data.entities && data.entities[qid];
+
+      if (!entity || entity.missing !== undefined) {
+        throw new Error(`Wikidata item ${qid} does not exist.`);
       }
-      return null;
+
+      const label = (entity.labels && (entity.labels[lang]?.value || entity.labels.en?.value)) || qid;
+      const description = (entity.descriptions && (entity.descriptions[lang]?.value || entity.descriptions.en?.value)) || '';
+
+      // Extract P31 (instance of) target QIDs
+      const p31Claims = (entity.claims && entity.claims.P31) || [];
+      const p31Ids = Array.from(new Set(
+        p31Claims
+          .map(claim => claim?.mainsnak?.datavalue?.value?.id)
+          .filter(Boolean)
+      ));
+
+      if (p31Ids.length === 0) {
+        throw new Error(`${label} (${qid}) has no P31 ("instance of") statements on Wikidata, so no similar items can be retrieved via P31.`);
+      }
+
+      // Fetch human-readable labels for the P31 classes
+      let p31Classes = p31Ids.map(id => ({ id, label: id }));
+      try {
+        const classUrl = `https://www.wikidata.org/w/api.php?action=wbgetentities&ids=${encodeURIComponent(p31Ids.join('|'))}&props=labels&languages=${encodeURIComponent(lang)}|en&format=json&origin=*`;
+        const classRes = await fetch(classUrl);
+        if (classRes.ok) {
+          const classData = await classRes.json();
+          p31Classes = p31Ids.map(id => {
+            const cEnt = classData.entities && classData.entities[id];
+            const cLabel = (cEnt?.labels && (cEnt.labels[lang]?.value || cEnt.labels.en?.value)) || id;
+            return { id, label: cLabel };
+          });
+        }
+      } catch (e) {
+        // Fallback to QIDs if class label lookup fails
+      }
+
+      return { qid, label, description, p31Classes };
+    }
+
+    /**
+     * Renders the Sample Item & Shared P31 context banner above the results panel
+     */
+    function renderSampleBanner(meta) {
+      if (!meta || state.inputMode !== 'sample') {
+        dom.sampleContextBanner.classList.add('hidden');
+        return;
+      }
+
+      dom.bannerItemLink.href = `https://www.wikidata.org/wiki/${encodeURIComponent(meta.qid)}`;
+      dom.bannerItemLink.textContent = `${meta.label} (${meta.qid}) ↗`;
+      dom.bannerItemDesc.textContent = meta.description ? `— ${meta.description}` : '';
+
+      dom.bannerP31List.innerHTML = meta.p31Classes.map(cls => `
+        <a href="https://www.wikidata.org/wiki/${encodeURIComponent(cls.id)}" target="_blank" rel="noopener"
+           class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium bg-white text-indigo-800 border border-indigo-200 hover:bg-indigo-100 transition">
+          <span>${escapeHtml(cls.label)}</span>
+          <span class="code-font text-[10px] text-indigo-500">(${escapeHtml(cls.id)})</span>
+        </a>
+      `).join('');
+
+      dom.sampleContextBanner.classList.remove('hidden');
+    }
+
+    /**
+     * Automatically detects the primary projected variable from a SPARQL SELECT clause
+     */
+    function detectPrimaryVariable(sparqlText) {
+      const cleaned = sparqlText.replace(/#.*$/gm, ' ');
+      const selectMatch = cleaned.match(/SELECT\s+(?:DISTINCT\s+|REDUCED\s+)?([\s\S]*?)\bWHERE\b/i);
+      if (selectMatch && selectMatch[1]) {
+        const varMatch = selectMatch[1].match(/([?$][a-zA-Z_][a-zA-Z0-9_]*)/);
+        if (varMatch) return varMatch[1];
+      }
+      const fallbackMatch = cleaned.match(/([?$][a-zA-Z_][a-zA-Z0-9_]*)/);
+      return fallbackMatch ? fallbackMatch[1] : '?person';
     }
 
     /**
@@ -613,10 +745,7 @@ wd:Q36180.
         const qid = parseSampleQid(dom.sampleQidInput.value) || 'Q42';
         const limitClause = dom.sampleLimitToggle.checked ? '\n    LIMIT 50000' : '';
 
-        return `PREFIX wdt: <http://www.wikidata.org/prop/direct/>
-PREFIX wd: <http://www.wikidata.org/entity/>
-PREFIX wikibase: <http://wikiba.se/ontology#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+        return `${STANDARD_PREFIXES}
 SELECT ?property ?propertyLabel (COUNT(*) AS ?n) {
   {
     SELECT DISTINCT ?item WHERE {
@@ -631,16 +760,32 @@ SELECT ?property ?propertyLabel (COUNT(*) AS ?n) {
       }
 
       // Default: Custom SPARQL Query mode
-      const innerQuery = dom.sparqlInput.value.trim();
+      // Extract any user-defined PREFIX lines so they don't cause syntax errors inside a `{ SELECT ... }` subquery
+      const rawLines = dom.sparqlInput.value.split('\n');
+      const customPrefixMap = new Map();
+      const bodyLines = [];
+
+      for (const line of rawLines) {
+        const prefixMatch = line.match(/^\s*PREFIX\s+([A-Za-z0-9_-]*:)\s*(<[^>]+>)\s*\.?\s*$/i);
+        if (prefixMatch) {
+          customPrefixMap.set(prefixMatch[1], `PREFIX ${prefixMatch[1]} ${prefixMatch[2]}`);
+        } else {
+          bodyLines.push(line);
+        }
+      }
+
+      const innerQuery = bodyLines.join('\n').trim();
+      const extraPrefixes = Array.from(customPrefixMap.values()).join('\n');
+      const prefixHeader = extraPrefixes
+        ? `${STANDARD_PREFIXES}\n${extraPrefixes}`
+        : STANDARD_PREFIXES;
+
       let targetVar = dom.targetVar.value.trim();
       if (!targetVar.startsWith('?') && !targetVar.startsWith('$')) {
         targetVar = '?' + (targetVar || 'person');
       }
 
-      return `PREFIX wdt: <http://www.wikidata.org/prop/direct/>
-PREFIX wd: <http://www.wikidata.org/entity/>
-PREFIX wikibase: <http://wikiba.se/ontology#>
-PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+      return `${prefixHeader}
 SELECT ?property ?propertyLabel (COUNT(*) AS ?n) {
 { ${innerQuery} }
 
@@ -654,82 +799,80 @@ ${labelPattern}
     /**
      * Executes the embedded SPARQL query against the selected endpoint
      */
-    async function executeQuery() {
+    async function runPropertyAnalysis() {
+      if (state.isLoading) return;
+
       const lang = (dom.labelLang.value.trim() || 'en').replace(/[^a-zA-Z0-9-]/g, '');
 
-      if (state.inputMode === 'sample') {
-        const qid = parseSampleQid(dom.sampleQidInput.value);
-        if (!qid) {
-          showError('Please enter a valid Wikidata QID (e.g., Q42) or Wikidata item URL.');
-          return;
-        }
-        // Fetch sample item label and P31 classes concurrently
-        fetchAndRenderSampleMetadata(qid, lang);
-      } else {
-        dom.sampleContextBanner.classList.add('hidden');
-        const innerQuery = dom.sparqlInput.value.trim();
-        if (!innerQuery) {
+      if (state.inputMode === 'sparql') {
+        const rawInner = dom.sparqlInput.value.trim();
+        if (!rawInner) {
           showError('Please enter a SPARQL SELECT query first.');
           return;
         }
+        state.sampleMetadata = null;
+        dom.sampleContextBanner.classList.add('hidden');
+      } else {
+        const qid = parseSampleQid(dom.sampleQidInput.value);
+        if (!qid) {
+          showError('Please enter a valid Wikidata item QID (e.g. Q42) or Wikidata URL.');
+          return;
+        }
+        dom.sampleQidInput.value = qid;
       }
 
-      hideError();
       setLoading(true);
+      hideError();
 
-      const fullQuery = buildFullQuery();
-      const endpointUrl = ENDPOINTS[dom.endpointSelect.value];
+      const startTime = performance.now();
 
       try {
-        const params = new URLSearchParams();
-        params.append('query', fullQuery);
+        // In Sample Item mode, first resolve the item's label & P31 classes for context and validation
+        if (state.inputMode === 'sample') {
+          const qid = parseSampleQid(dom.sampleQidInput.value);
+          const meta = await fetchSampleItemContext(qid, lang);
+          state.sampleMetadata = meta;
+          renderSampleBanner(meta);
+        }
 
-        const response = await fetch(endpointUrl, {
-          method: 'POST',
+        const fullQuery = buildFullQuery();
+        const endpointUrl = ENDPOINTS[dom.endpointSelect.value];
+
+        const url = `${endpointUrl}?query=${encodeURIComponent(fullQuery)}&format=json`;
+        const response = await fetch(url, {
+          method: 'GET',
           headers: {
-            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
             'Accept': 'application/sparql-results+json'
-          },
-          body: params.toString()
+          }
         });
 
         if (!response.ok) {
           const errText = await response.text();
-          throw new Error(`HTTP ${response.status}: ${errText.slice(0, 300) || response.statusText}`);
+          throw new Error(`Endpoint returned HTTP ${response.status}: ${errText.slice(0, 320)}`);
         }
 
-        const data = await response.json();
-        const bindings = data?.results?.bindings || [];
+        const json = await response.json();
+        const bindings = json?.results?.bindings || [];
 
-        if (bindings.length === 0) {
-          state.results = [];
-          state.totalStatements = 0;
-          applyFilterAndRender();
-          showError('Query succeeded, but returned 0 properties. Check your inner query or target variable name.');
-          return;
-        }
-
-        // Parse bindings into clean objects
         let total = 0;
-        const parsed = bindings.map(row => {
+        const parsed = bindings.map((row) => {
           const uri = row.property?.value || '';
-          // Extract P-ID (e.g., http://www.wikidata.org/entity/P31 -> P31)
-          const idMatch = uri.match(/\/(P\d+)$/);
+          const idMatch = uri.match(/(P\d+)$/);
           const id = idMatch ? idMatch[1] : uri.split('/').pop();
-          const numId = idMatch ? parseInt(idMatch[1].slice(1), 10) : 999999999;
           const label = row.propertyLabel?.value || id;
           const count = parseInt(row.n?.value || '0', 10);
           total += count;
 
-          // Ensure clickable URL points to canonical Wikidata property page
-          const pageUrl = id.startsWith('P')
-            ? `https://www.wikidata.org/wiki/Property:${id}`
-            : uri;
-
-          return { uri, pageUrl, id, numId, label, count, share: 0 };
+          return {
+            id,
+            uri,
+            url: `https://www.wikidata.org/wiki/Property:${id}`,
+            label,
+            count
+          };
         });
 
-        // Compute relative percentage share and initial rank
+        parsed.sort((a, b) => b.count - a.count);
         parsed.forEach((item, idx) => {
           item.rank = idx + 1;
           item.share = total > 0 ? (item.count / total) * 100 : 0;
@@ -737,33 +880,49 @@ ${labelPattern}
 
         state.results = parsed;
         state.totalStatements = total;
-        applyFilterAndRender();
 
+        const elapsedSec = ((performance.now() - startTime) / 1000).toFixed(2);
+        const contextSuffix = state.inputMode === 'sample' && state.sampleMetadata
+          ? ` for items sharing P31 with ${state.sampleMetadata.label} (${state.sampleMetadata.qid})`
+          : '';
+
+        dom.statsSummary.innerHTML = `Found <strong>${parsed.length.toLocaleString()}</strong> distinct properties across <strong>${total.toLocaleString()}</strong> truthy statements${contextSuffix} (${elapsedSec}s)`;
+
+        renderActiveView();
       } catch (err) {
-        console.error('SPARQL Query Error:', err);
-        showError(err.message || 'Network or syntax error while contacting the SPARQL endpoint.');
+        console.error(err);
+        showError(err.message || 'An unexpected error occurred while querying the SPARQL endpoint.');
       } finally {
         setLoading(false);
       }
     }
 
     /**
-     * Filters and sorts results based on UI state, then renders active view
+     * Filters and limits the dataset according to current UI controls
      */
-    function applyFilterAndRender() {
-      const term = state.searchTerm.toLowerCase().trim();
-      state.filteredResults = term
-        ? state.results.filter(d => d.label.toLowerCase().includes(term) || d.id.toLowerCase().includes(term))
-        : [...state.results];
+    function getFilteredData() {
+      const q = state.filterText.trim().toLowerCase();
+      let filtered = state.results;
 
-      // Update summary header
-      if (state.results.length > 0) {
-        dom.statsSummary.innerHTML = `Found <strong>${state.results.length.toLocaleString()}</strong> distinct properties across <strong>${state.totalStatements.toLocaleString()}</strong> direct statements`;
-      } else {
-        dom.statsSummary.textContent = 'No properties found';
+      if (q) {
+        filtered = filtered.filter(item =>
+          item.label.toLowerCase().includes(q) ||
+          item.id.toLowerCase().includes(q)
+        );
       }
 
-      if (state.viewMode === 'visual') {
+      if (state.limit !== 'all') {
+        filtered = filtered.slice(0, Number(state.limit));
+      }
+
+      return filtered;
+    }
+
+    /**
+     * Re-renders whichever view (Visual or Tabular) is currently visible
+     */
+    function renderActiveView() {
+      if (state.activeView === 'visual') {
         renderVisualView();
       } else {
         renderTableView();
@@ -771,60 +930,55 @@ ${labelPattern}
     }
 
     /**
-     * Renders the interactive D3.js Visualization (Bubbles, Horizontal Bars, or Treemap)
+     * Renders D3 Visualizations (Packed Bubbles, Horizontal Bars, or Treemap)
      */
     function renderVisualView() {
-      // Clear previous SVG while preserving emptyState if needed
-      const existingSvg = dom.chartWrapper.querySelector('svg');
-      if (existingSvg) existingSvg.remove();
+      const data = getFilteredData();
+      dom.chartWrapper.innerHTML = '';
 
-      if (state.filteredResults.length === 0) {
-        dom.emptyState.classList.remove('hidden');
+      if (!state.results.length) {
         dom.visualShowingBadge.textContent = '';
+        dom.chartWrapper.innerHTML = `
+          <div class="text-center p-8 max-w-sm">
+            <h3 class="text-sm font-semibold text-slate-800">No Properties Found</h3>
+            <p class="text-xs text-slate-500 mt-1">The query returned 0 matching properties. Try broadening your query or checking the target variable.</p>
+          </div>`;
         return;
       }
 
-      dom.emptyState.classList.add('hidden');
+      if (!data.length) {
+        dom.visualShowingBadge.textContent = '0 matching properties';
+        dom.chartWrapper.innerHTML = `
+          <div class="text-center p-8 max-w-sm">
+            <h3 class="text-sm font-semibold text-slate-800">No Matches for "${escapeHtml(state.filterText)}"</h3>
+            <p class="text-xs text-slate-500 mt-1">Clear or adjust the search filter above to see properties.</p>
+          </div>`;
+        return;
+      }
 
-      const limitVal = state.limit === 'all' ? state.filteredResults.length : parseInt(state.limit, 10);
-      const dataSlice = state.filteredResults.slice(0, limitVal);
-      dom.visualShowingBadge.textContent = `Showing top ${dataSlice.length} of ${state.filteredResults.length} properties`;
+      dom.visualShowingBadge.textContent = `Showing ${data.length} of ${state.results.length} properties`;
 
-      const rect = dom.chartWrapper.getBoundingClientRect();
-      const width = Math.max(rect.width || 720, 320);
-
-      // Rich scholarly color palette
-      const colorScale = d3.scaleOrdinal()
-        .range([
-          '#4f46e5', '#0284c7', '#0d9488', '#059669', '#2563eb',
-          '#7c3aed', '#db2777', '#d97706', '#4338ca', '#0369a1',
-          '#0f766e', '#6d28d9', '#be185d', '#b45309'
-        ]);
+      const containerWidth = Math.max(dom.chartWrapper.clientWidth || 680, 320);
 
       if (state.chartType === 'bubbles') {
-        renderBubbleChart(dataSlice, width, 540, colorScale);
+        renderBubbleChart(data, containerWidth, 520);
+      } else if (state.chartType === 'bars') {
+        renderBarChart(data, containerWidth);
       } else if (state.chartType === 'treemap') {
-        renderTreemapChart(dataSlice, width, 540, colorScale);
-      } else {
-        renderBarChart(dataSlice, width, colorScale);
+        renderTreemapChart(data, containerWidth, 520);
       }
     }
 
     /**
-     * 1. Packed Circle / Bubble Chart
+     * Chart Type 1: D3 Packed Bubble Chart
      */
-    function renderBubbleChart(data, width, height, colorScale) {
-      const svg = d3.select(dom.chartWrapper)
-        .append('svg')
-        .attr('width', width)
-        .attr('height', height)
-        .attr('viewBox', `0 0 ${width} ${height}`)
-        .style('max-width', '100%')
-        .style('height', 'auto');
+    function renderBubbleChart(data, width, height) {
+      const colorScale = d3.scaleSequential()
+        .domain([0, Math.max(data.length - 1, 1)])
+        .interpolator(t => d3.interpolateIndigo(0.85 - t * 0.55));
 
       const root = d3.hierarchy({ children: data })
-        .sum(d => d.count)
-        .sort((a, b) => b.value - a.value);
+        .sum(d => d.count);
 
       const pack = d3.pack()
         .size([width - 16, height - 16])
@@ -832,201 +986,209 @@ ${labelPattern}
 
       const nodes = pack(root).leaves();
 
-      const groups = svg.selectAll('g')
+      const svg = d3.select(dom.chartWrapper)
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height)
+        .attr('viewBox', `0 0 ${width} ${height}`)
+        .attr('class', 'w-full h-auto select-none');
+
+      const g = svg.append('g')
+        .attr('transform', 'translate(8,8)');
+
+      const node = g.selectAll('g')
         .data(nodes)
         .join('g')
         .attr('class', 'node-group')
-        .attr('transform', d => `translate(${d.x + 8},${d.y + 8})`)
+        .attr('transform', d => `translate(${d.x},${d.y})`)
         .on('mouseenter', (event, d) => showTooltip(event, d.data))
-        .on('mousemove', moveTooltip)
+        .on('mousemove', (event) => moveTooltip(event))
         .on('mouseleave', hideTooltip)
-        .on('click', (event, d) => window.open(d.data.pageUrl, '_blank', 'noopener'));
+        .on('click', (event, d) => {
+          window.open(d.data.url, '_blank', 'noopener');
+        });
 
-      groups.append('circle')
-        .attr('r', d => d.r)
+      node.append('circle')
+        .attr('r', d => Math.max(d.r, 2))
         .attr('fill', (d, i) => colorScale(i))
-        .attr('fill-opacity', 0.9)
         .attr('stroke', '#ffffff')
-        .attr('stroke-width', 2);
+        .attr('stroke-width', 1.5);
 
-      // Add readable labels inside bubbles large enough to hold text
-      groups.each(function(d) {
-        if (d.r < 20) return;
-        const g = d3.select(this);
-        const maxChars = Math.floor((d.r * 1.65) / 6.5);
-        const label = d.data.label.length > maxChars
-          ? d.data.label.slice(0, Math.max(3, maxChars - 1)) + '…'
+      node.each(function(d) {
+        if (d.r < 22) return;
+        const group = d3.select(this);
+        const maxChars = Math.floor((d.r * 1.65) / 6.2);
+        const labelText = d.data.label.length > maxChars
+          ? d.data.label.slice(0, Math.max(maxChars - 1, 3)) + '…'
           : d.data.label;
 
-        g.append('text')
+        group.append('text')
           .attr('text-anchor', 'middle')
-          .attr('dy', d.r > 32 ? '-0.15em' : '0.32em')
+          .attr('dy', d.r > 34 ? '-0.2em' : '0.32em')
           .attr('fill', '#ffffff')
-          .style('font-size', `${Math.min(13, Math.max(9, d.r / 3.6))}px`)
+          .style('font-size', `${Math.min(Math.max(d.r / 4.2, 10), 14)}px`)
           .style('font-weight', '600')
-          .style('pointer-events', 'none')
-          .text(label);
+          .text(labelText);
 
-        if (d.r > 32) {
-          g.append('text')
+        if (d.r > 34) {
+          group.append('text')
             .attr('text-anchor', 'middle')
-            .attr('dy', '1.15em')
+            .attr('dy', '1.1em')
             .attr('fill', 'rgba(255,255,255,0.85)')
-            .style('font-size', `${Math.min(11, Math.max(8, d.r / 4.5))}px`)
+            .style('font-size', '10px')
             .style('font-family', 'JetBrains Mono, monospace')
-            .style('pointer-events', 'none')
-            .text(`${d.data.count.toLocaleString()}`);
+            .text(d3.format(',')(d.data.count));
         }
       });
     }
 
     /**
-     * 2. Horizontal Bar Chart
+     * Chart Type 2: D3 Horizontal Bar Chart
      */
-    function renderBarChart(data, width, colorScale) {
+    function renderBarChart(data, width) {
       const barHeight = 30;
-      const gap = 8;
-      const margin = { top: 16, right: 85, bottom: 20, left: Math.min(230, width * 0.36) };
-      const height = Math.max(460, data.length * (barHeight + gap) + margin.top + margin.bottom);
+      const margin = { top: 16, right: 85, bottom: 24, left: Math.min(220, Math.floor(width * 0.38)) };
+      const height = Math.max(460, data.length * barHeight + margin.top + margin.bottom);
 
       const svg = d3.select(dom.chartWrapper)
         .append('svg')
         .attr('width', width)
         .attr('height', height)
         .attr('viewBox', `0 0 ${width} ${height}`)
-        .style('max-width', '100%');
-
-      const innerWidth = Math.max(120, width - margin.left - margin.right);
-      const maxCount = d3.max(data, d => d.count) || 1;
+        .attr('class', 'w-full h-auto select-none');
 
       const x = d3.scaleLinear()
-        .domain([0, maxCount])
-        .range([0, innerWidth]);
+        .domain([0, d3.max(data, d => d.count) || 1])
+        .range([margin.left, width - margin.right]);
 
-      const g = svg.append('g')
-        .attr('transform', `translate(${margin.left},${margin.top})`);
+      const y = d3.scaleBand()
+        .domain(data.map(d => d.id))
+        .range([margin.top, height - margin.bottom])
+        .padding(0.24);
 
-      const rows = g.selectAll('.bar-row')
+      const rows = svg.selectAll('g.bar-row')
         .data(data)
         .join('g')
         .attr('class', 'node-group bar-row')
-        .attr('transform', (d, i) => `translate(0, ${i * (barHeight + gap)})`)
         .on('mouseenter', (event, d) => showTooltip(event, d))
-        .on('mousemove', moveTooltip)
+        .on('mousemove', (event) => moveTooltip(event))
         .on('mouseleave', hideTooltip)
-        .on('click', (event, d) => window.open(d.pageUrl, '_blank', 'noopener'));
+        .on('click', (event, d) => {
+          window.open(d.url, '_blank', 'noopener');
+        });
 
-      // Background track
       rows.append('rect')
-        .attr('x', 0)
-        .attr('y', 0)
-        .attr('width', innerWidth)
-        .attr('height', barHeight)
+        .attr('x', margin.left)
+        .attr('y', d => y(d.id))
+        .attr('width', width - margin.left - margin.right)
+        .attr('height', y.bandwidth())
         .attr('rx', 6)
         .attr('fill', '#e2e8f0')
-        .attr('fill-opacity', 0.45);
+        .attr('opacity', 0.45);
 
-      // Value bar
       rows.append('rect')
-        .attr('x', 0)
-        .attr('y', 0)
-        .attr('width', d => Math.max(4, x(d.count)))
-        .attr('height', barHeight)
+        .attr('x', margin.left)
+        .attr('y', d => y(d.id))
+        .attr('width', d => Math.max(x(d.count) - margin.left, 3))
+        .attr('height', y.bandwidth())
         .attr('rx', 6)
-        .attr('fill', (d, i) => colorScale(i));
+        .attr('fill', '#4f46e5');
 
-      // Left label (Property Name + ID)
       rows.append('text')
-        .attr('x', -10)
-        .attr('y', barHeight / 2)
+        .attr('x', margin.left - 10)
+        .attr('y', d => y(d.id) + y.bandwidth() / 2)
         .attr('dy', '0.35em')
         .attr('text-anchor', 'end')
         .attr('fill', '#1e293b')
         .style('font-size', '11.5px')
         .style('font-weight', '500')
         .text(d => {
-          const maxChars = Math.floor(margin.left / 7);
+          const maxLabelChars = Math.floor((margin.left - 24) / 6.3);
           const full = `${d.label} (${d.id})`;
-          return full.length > maxChars ? full.slice(0, maxChars - 1) + '…' : full;
+          return full.length > maxLabelChars ? full.slice(0, Math.max(maxLabelChars - 1, 6)) + '…' : full;
         });
 
-      // Right count label
       rows.append('text')
         .attr('x', d => x(d.count) + 8)
-        .attr('y', barHeight / 2)
+        .attr('y', d => y(d.id) + y.bandwidth() / 2)
         .attr('dy', '0.35em')
-        .attr('fill', '#334155')
+        .attr('fill', '#475569')
         .style('font-size', '11px')
         .style('font-family', 'JetBrains Mono, monospace')
-        .style('font-weight', '600')
-        .text(d => d.count.toLocaleString());
+        .text(d => d3.format(',')(d.count));
     }
 
     /**
-     * 3. Rectangular Treemap
+     * Chart Type 3: D3 Squarified Treemap
      */
-    function renderTreemapChart(data, width, height, colorScale) {
+    function renderTreemapChart(data, width, height) {
+      const colorScale = d3.scaleSequential()
+        .domain([0, Math.max(data.length - 1, 1)])
+        .interpolator(t => d3.interpolateBlues(0.85 - t * 0.5));
+
+      const root = d3.hierarchy({ children: data })
+        .sum(d => d.count);
+
+      d3.treemap()
+        .size([width - 12, height - 12])
+        .paddingInner(3)
+        .round(true)(root);
+
       const svg = d3.select(dom.chartWrapper)
         .append('svg')
         .attr('width', width)
         .attr('height', height)
         .attr('viewBox', `0 0 ${width} ${height}`)
-        .style('max-width', '100%');
+        .attr('class', 'w-full h-auto select-none');
 
-      const root = d3.hierarchy({ children: data })
-        .sum(d => d.count)
-        .sort((a, b) => b.value - a.value);
+      const g = svg.append('g')
+        .attr('transform', 'translate(6,6)');
 
-      d3.treemap()
-        .size([width - 12, height - 12])
-        .padding(3)
-        .round(true)(root);
-
-      const cells = svg.selectAll('g')
+      const cell = g.selectAll('g')
         .data(root.leaves())
         .join('g')
         .attr('class', 'node-group')
-        .attr('transform', d => `translate(${d.x0 + 6},${d.y0 + 6})`)
+        .attr('transform', d => `translate(${d.x0},${d.y0})`)
         .on('mouseenter', (event, d) => showTooltip(event, d.data))
-        .on('mousemove', moveTooltip)
+        .on('mousemove', (event) => moveTooltip(event))
         .on('mouseleave', hideTooltip)
-        .on('click', (event, d) => window.open(d.data.pageUrl, '_blank', 'noopener'));
+        .on('click', (event, d) => {
+          window.open(d.data.url, '_blank', 'noopener');
+        });
 
-      cells.append('rect')
-        .attr('width', d => Math.max(0, d.x1 - d.x0))
-        .attr('height', d => Math.max(0, d.y1 - d.y0))
+      cell.append('rect')
+        .attr('width', d => Math.max(d.x1 - d.x0, 0))
+        .attr('height', d => Math.max(d.y1 - d.y0, 0))
         .attr('rx', 6)
         .attr('fill', (d, i) => colorScale(i));
 
-      cells.each(function(d) {
+      cell.each(function(d) {
         const w = d.x1 - d.x0;
         const h = d.y1 - d.y0;
         if (w < 46 || h < 24) return;
 
-        const g = d3.select(this);
-        const maxChars = Math.floor((w - 12) / 6.5);
+        const group = d3.select(this);
+        const maxChars = Math.floor((w - 12) / 6.3);
         const label = d.data.label.length > maxChars
-          ? d.data.label.slice(0, Math.max(3, maxChars - 1)) + '…'
+          ? d.data.label.slice(0, Math.max(maxChars - 1, 3)) + '…'
           : d.data.label;
 
-        g.append('text')
+        group.append('text')
           .attr('x', 8)
           .attr('y', 18)
           .attr('fill', '#ffffff')
           .style('font-size', '11.5px')
           .style('font-weight', '600')
-          .style('pointer-events', 'none')
           .text(label);
 
-        if (h >= 38) {
-          g.append('text')
+        if (h >= 40) {
+          group.append('text')
             .attr('x', 8)
             .attr('y', 33)
             .attr('fill', 'rgba(255,255,255,0.85)')
             .style('font-size', '10px')
             .style('font-family', 'JetBrains Mono, monospace')
-            .style('pointer-events', 'none')
-            .text(`${d.data.id} · ${d.data.count.toLocaleString()}`);
+            .text(`${d.data.id} · ${d3.format(',')(d.data.count)}`);
         }
       });
     }
@@ -1035,56 +1197,77 @@ ${labelPattern}
      * Renders the Sortable Tabular View
      */
     function renderTableView() {
-      const sorted = [...state.filteredResults].sort((a, b) => {
+      const q = state.filterText.trim().toLowerCase();
+      let rows = [...state.results];
+
+      if (q) {
+        rows = rows.filter(item =>
+          item.label.toLowerCase().includes(q) ||
+          item.id.toLowerCase().includes(q)
+        );
+      }
+
+      rows.sort((a, b) => {
         let cmp = 0;
-        if (state.sortCol === 'rank') cmp = a.rank - b.rank;
-        else if (state.sortCol === 'id') cmp = a.numId - b.numId;
-        else if (state.sortCol === 'label') cmp = a.label.localeCompare(b.label);
-        else cmp = a.count - b.count;
-        return state.sortAsc ? cmp : -cmp;
+        if (state.sortBy === 'count') cmp = a.count - b.count;
+        else if (state.sortBy === 'rank') cmp = a.rank - b.rank;
+        else if (state.sortBy === 'id') cmp = a.id.localeCompare(b.id, undefined, { numeric: true });
+        else if (state.sortBy === 'label') cmp = a.label.localeCompare(b.label);
+        return state.sortDir === 'asc' ? cmp : -cmp;
       });
 
-      const maxCount = state.results.length > 0 ? state.results[0].count : 1;
+      if (state.limit !== 'all') {
+        rows = rows.slice(0, Number(state.limit));
+      }
 
-      if (sorted.length === 0) {
+      if (!rows.length) {
         dom.tableBody.innerHTML = `
           <tr>
-            <td colspan="5" class="py-12 text-center text-slate-400 text-xs">
-              No matching properties to display. Run a query or adjust your filter.
+            <td colspan="5" class="py-10 text-center text-slate-500">
+              ${state.results.length ? 'No properties match your current filter.' : 'No data loaded yet. Run a query to populate this table.'}
             </td>
           </tr>`;
         return;
       }
 
-      dom.tableBody.innerHTML = sorted.map(row => {
-        const barWidth = Math.max(1, (row.count / maxCount) * 100);
+      const maxCount = state.results[0]?.count || 1;
+
+      dom.tableBody.innerHTML = rows.map(item => {
+        const barWidthPct = Math.max((item.count / maxCount) * 100, 1.5);
         return `
           <tr class="hover:bg-indigo-50/50 transition">
-            <td class="py-2.5 px-4 text-slate-400 font-mono text-[11px]">${row.rank}</td>
-            <td class="py-2.5 px-4 font-mono font-medium text-indigo-600">
-              <a href="${row.pageUrl}" target="_blank" rel="noopener" class="hover:underline">${escapeHtml(row.id)}</a>
-            </td>
-            <td class="py-2.5 px-4 font-medium text-slate-800">
-              <a href="${row.pageUrl}" target="_blank" rel="noopener" class="hover:text-indigo-700 hover:underline flex items-center gap-1.5">
-                <span>${escapeHtml(row.label)}</span>
-                <span class="text-slate-400 text-[10px]">↗</span>
+            <td class="py-2.5 px-4 text-slate-400 font-mono">${item.rank}</td>
+            <td class="py-2.5 px-4">
+              <a href="${item.url}" target="_blank" rel="noopener" class="code-font font-medium text-indigo-600 hover:text-indigo-800 hover:underline">
+                ${escapeHtml(item.id)}
               </a>
             </td>
-            <td class="py-2.5 px-4 text-right font-mono font-semibold text-slate-900">${row.count.toLocaleString()}</td>
+            <td class="py-2.5 px-4 font-medium text-slate-800">
+              <a href="${item.url}" target="_blank" rel="noopener" class="hover:text-indigo-700 hover:underline inline-flex items-center gap-1">
+                <span>${escapeHtml(item.label)}</span>
+                <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                </svg>
+              </a>
+            </td>
+            <td class="py-2.5 px-4 text-right font-mono font-semibold text-slate-900">
+              ${item.count.toLocaleString()}
+            </td>
             <td class="py-2.5 px-4">
               <div class="flex items-center gap-2">
                 <div class="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                  <div class="h-full bg-indigo-500 rounded-full" style="width: ${barWidth.toFixed(1)}%"></div>
+                  <div class="h-full bg-indigo-500 rounded-full" style="width: ${barWidthPct.toFixed(1)}%"></div>
                 </div>
-                <span class="text-[11px] font-mono text-slate-500 w-12 text-right">${row.share.toFixed(1)}%</span>
+                <span class="text-[11px] font-mono text-slate-500 w-12 text-right">${item.share.toFixed(1)}%</span>
               </div>
             </td>
-          </tr>`;
+          </tr>
+        `;
       }).join('');
     }
 
     /**
-     * Tooltip & UI Helper Functions
+     * Tooltip Helpers
      */
     function showTooltip(event, item) {
       dom.ttLabel.textContent = item.label;
@@ -1096,31 +1279,35 @@ ${labelPattern}
     }
 
     function moveTooltip(event) {
-      const pad = 14;
+      const padding = 14;
       const ttRect = dom.tooltip.getBoundingClientRect();
-      let left = event.clientX + pad;
-      let top = event.clientY + pad;
+      let left = event.clientX + padding;
+      let top = event.clientY + padding;
 
-      if (left + ttRect.width > window.innerWidth - 12) {
-        left = event.clientX - ttRect.width - pad;
+      if (left + ttRect.width > window.innerWidth - 10) {
+        left = event.clientX - ttRect.width - padding;
       }
-      if (top + ttRect.height > window.innerHeight - 12) {
-        top = event.clientY - ttRect.height - pad;
+      if (top + ttRect.height > window.innerHeight - 10) {
+        top = event.clientY - ttRect.height - padding;
       }
 
-      dom.tooltip.style.left = `${Math.max(8, left)}px`;
-      dom.tooltip.style.top = `${Math.max(8, top)}px`;
+      dom.tooltip.style.left = `${left}px`;
+      dom.tooltip.style.top = `${top}px`;
     }
 
     function hideTooltip() {
       dom.tooltip.classList.add('opacity-0');
     }
 
-    function setLoading(isLoading) {
-      dom.btnRun.disabled = isLoading;
-      dom.runIcon.classList.toggle('hidden', isLoading);
-      dom.loadingSpinner.classList.toggle('hidden', !isLoading);
-      dom.runBtnText.textContent = isLoading ? 'Querying Wikidata...' : 'Analyze Properties';
+    /**
+     * UI & Export Utilities
+     */
+    function setLoading(loading) {
+      state.isLoading = loading;
+      dom.btnRun.disabled = loading;
+      dom.runIcon.classList.toggle('hidden', loading);
+      dom.loadingSpinner.classList.toggle('hidden', !loading);
+      dom.runBtnText.textContent = loading ? 'Querying Wikidata...' : 'Analyze Properties';
     }
 
     function showError(msg) {
@@ -1152,266 +1339,209 @@ ${labelPattern}
       URL.revokeObjectURL(url);
     }
 
-    // Event Listeners: Input Mode Switching (Custom SPARQL vs Sample Item P31)
-    function switchInputMode(mode) {
-      state.inputMode = mode;
-      const isSparql = mode === 'sparql';
+    /**
+     * Event Listeners Setup
+     */
+    function initEventListeners() {
+      // Input mode tabs (Custom SPARQL vs Sample Item P31)
+      dom.modeTabSparql.addEventListener('click', () => switchInputMode('sparql'));
+      dom.modeTabSample.addEventListener('click', () => switchInputMode('sample'));
 
-      dom.modeTabSparql.classList.toggle('bg-white', isSparql);
-      dom.modeTabSparql.classList.toggle('text-indigo-700', isSparql);
-      dom.modeTabSparql.classList.toggle('shadow-xs', isSparql);
-      dom.modeTabSparql.classList.toggle('text-slate-600', !isSparql);
-      dom.modeTabSparql.setAttribute('aria-selected', String(isSparql));
-
-      dom.modeTabSample.classList.toggle('bg-white', !isSparql);
-      dom.modeTabSample.classList.toggle('text-indigo-700', !isSparql);
-      dom.modeTabSample.classList.toggle('shadow-xs', !isSparql);
-      dom.modeTabSample.classList.toggle('text-slate-600', isSparql);
-      dom.modeTabSample.setAttribute('aria-selected', String(!isSparql));
-
-      dom.panelModeSparql.classList.toggle('hidden', !isSparql);
-      dom.panelModeSample.classList.toggle('hidden', isSparql);
-
-      if (isSparql) {
-        dom.sampleContextBanner.classList.add('hidden');
-      }
-    }
-
-    dom.modeTabSparql.addEventListener('click', () => switchInputMode('sparql'));
-    dom.modeTabSample.addEventListener('click', () => {
-      switchInputMode('sample');
-      executeQuery();
-    });
-
-    // Live Wikidata Entity Autocomplete Search in Sample Item Mode
-    let wdSearchTimer;
-    dom.wdSearchInput.addEventListener('input', (e) => {
-      const term = e.target.value.trim();
-      clearTimeout(wdSearchTimer);
-      if (term.length < 2) {
-        dom.wdSearchResults.classList.add('hidden');
-        return;
-      }
-
-      wdSearchTimer = setTimeout(async () => {
-        try {
-          const lang = (dom.labelLang.value.trim() || 'en').replace(/[^a-zA-Z0-9-]/g, '');
-          const url = `https://www.wikidata.org/w/api.php?action=wbsearchentities&search=${encodeURIComponent(term)}&language=${encodeURIComponent(lang)}&uselang=${encodeURIComponent(lang)}&limit=7&format=json&origin=*`;
-          const res = await fetch(url);
-          if (!res.ok) return;
-          const data = await res.json();
-          const hits = data.search || [];
-
-          if (hits.length === 0) {
-            dom.wdSearchResults.innerHTML = `<div class="p-3 text-xs text-slate-400">No Wikidata items found for "${escapeHtml(term)}"</div>`;
-          } else {
-            dom.wdSearchResults.innerHTML = hits.map(hit => `
-              <button type="button" data-qid="${hit.id}" class="wd-hit-btn w-full text-left px-3 py-2 hover:bg-indigo-50 transition flex items-start justify-between gap-2">
-                <div class="min-w-0">
-                  <div class="text-xs font-semibold text-slate-900 truncate">${escapeHtml(hit.label || hit.id)}</div>
-                  <div class="text-[11px] text-slate-500 truncate">${escapeHtml(hit.description || 'No description')}</div>
-                </div>
-                <span class="code-font text-[10px] font-medium bg-slate-100 text-indigo-700 px-1.5 py-0.5 rounded shrink-0">${hit.id}</span>
-              </button>
-            `).join('');
-          }
-          dom.wdSearchResults.classList.remove('hidden');
-        } catch (err) {
-          console.error('Wikidata search failed:', err);
-        }
-      }, 260);
-    });
-
-    dom.wdSearchResults.addEventListener('click', (e) => {
-      const btn = e.target.closest('.wd-hit-btn');
-      if (!btn) return;
-      const qid = btn.dataset.qid;
-      dom.sampleQidInput.value = qid;
-      dom.wdSearchInput.value = '';
-      dom.wdSearchResults.classList.add('hidden');
-      executeQuery();
-    });
-
-    // Close autocomplete dropdown when clicking outside
-    document.addEventListener('click', (e) => {
-      if (!dom.wdSearchInput.contains(e.target) && !dom.wdSearchResults.contains(e.target)) {
-        dom.wdSearchResults.classList.add('hidden');
-      }
-    });
-
-    // Quick Sample Item Preset Buttons
-    document.querySelectorAll('.sample-preset-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        dom.sampleQidInput.value = btn.dataset.qid;
-        executeQuery();
+      // Live Wikidata Entity Search input
+      dom.wdSearchInput.addEventListener('input', () => {
+        clearTimeout(searchDebounceTimer);
+        searchDebounceTimer = setTimeout(() => {
+          searchWikidataEntities(dom.wdSearchInput.value);
+        }, 280);
       });
-    });
 
-    // Allow pressing Enter in Sample QID field to run immediately
-    dom.sampleQidInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        executeQuery();
-      }
-    });
+      // Close search dropdown when clicking outside
+      document.addEventListener('click', (e) => {
+        if (!dom.wdSearchInput.contains(e.target) && !dom.wdSearchResults.contains(e.target)) {
+          dom.wdSearchResults.classList.add('hidden');
+        }
+      });
 
-    dom.sparqlInput.addEventListener('input', () => {
-      const detected = detectTargetVariable(dom.sparqlInput.value);
-      if (detected) {
+      // Sample QID preset pills
+      dom.samplePresetBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const qid = btn.getAttribute('data-qid');
+          dom.sampleQidInput.value = qid;
+          dom.wdSearchInput.value = '';
+          runPropertyAnalysis();
+        });
+      });
+
+      // Enter key in Sample QID field runs analysis
+      dom.sampleQidInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          runPropertyAnalysis();
+        }
+      });
+
+      // Auto-detect target variable as user types in SPARQL textarea
+      dom.sparqlInput.addEventListener('input', () => {
+        const detected = detectPrimaryVariable(dom.sparqlInput.value);
         dom.targetVar.value = detected;
         dom.inlineVarPreview.textContent = detected;
-      }
-    });
+      });
 
-    dom.targetVar.addEventListener('input', () => {
-      dom.inlineVarPreview.textContent = dom.targetVar.value || '?person';
-    });
+      dom.targetVar.addEventListener('input', () => {
+        dom.inlineVarPreview.textContent = dom.targetVar.value.trim() || '?person';
+      });
 
-    dom.presetSelect.addEventListener('change', (e) => {
-      const preset = PRESETS[e.target.value];
-      if (preset) {
-        dom.sparqlInput.value = preset.query;
-        dom.targetVar.value = preset.varName;
-        dom.inlineVarPreview.textContent = preset.varName;
-        executeQuery();
-      }
-    });
+      // Load preset query
+      dom.presetSelect.addEventListener('change', (e) => {
+        const preset = PRESETS[e.target.value];
+        if (preset) {
+          dom.sparqlInput.value = preset.query;
+          dom.targetVar.value = preset.varName;
+          dom.inlineVarPreview.textContent = preset.varName;
+          runPropertyAnalysis();
+        }
+      });
 
-    document.getElementById('btn-format-query').addEventListener('click', () => {
-      dom.presetSelect.value = 'writers';
-      dom.sparqlInput.value = PRESETS.writers.query;
-      dom.targetVar.value = PRESETS.writers.varName;
-      dom.inlineVarPreview.textContent = PRESETS.writers.varName;
-    });
+      // Reset default button
+      document.getElementById('btn-format-query').addEventListener('click', () => {
+        dom.presetSelect.value = 'writers';
+        dom.sparqlInput.value = PRESETS.writers.query;
+        dom.targetVar.value = PRESETS.writers.varName;
+        dom.inlineVarPreview.textContent = PRESETS.writers.varName;
+      });
 
-    dom.btnRun.addEventListener('click', executeQuery);
+      // Run Query
+      dom.btnRun.addEventListener('click', runPropertyAnalysis);
 
-    // View Mode Switching (Visual vs Tabular)
-    dom.tabVisual.addEventListener('click', () => {
-      state.viewMode = 'visual';
-      dom.tabVisual.classList.add('bg-white', 'text-indigo-700', 'shadow-sm');
-      dom.tabVisual.classList.remove('text-slate-600');
-      dom.tabTable.classList.remove('bg-white', 'text-indigo-700', 'shadow-sm');
-      dom.tabTable.classList.add('text-slate-600');
+      // Ctrl/Cmd + Enter inside textarea runs query
+      dom.sparqlInput.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+          runPropertyAnalysis();
+        }
+      });
 
-      dom.visualContainer.classList.remove('hidden');
-      dom.visualSubcontrols.classList.remove('hidden');
-      dom.tableContainer.classList.add('hidden');
-      renderVisualView();
-    });
-
-    dom.tabTable.addEventListener('click', () => {
-      state.viewMode = 'table';
-      dom.tabTable.classList.add('bg-white', 'text-indigo-700', 'shadow-sm');
-      dom.tabTable.classList.remove('text-slate-600');
-      dom.tabVisual.classList.remove('bg-white', 'text-indigo-700', 'shadow-sm');
-      dom.tabVisual.classList.add('text-slate-600');
-
-      dom.tableContainer.classList.remove('hidden');
-      dom.visualContainer.classList.add('hidden');
-      dom.visualSubcontrols.classList.add('hidden');
-      renderTableView();
-    });
-
-    // Visual Sub-type Buttons (Bubbles, Bars, Treemap)
-    document.querySelectorAll('.chart-type-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('.chart-type-btn').forEach(b => {
-          b.classList.remove('bg-white', 'text-slate-900', 'shadow-xs');
-          b.classList.add('text-slate-600');
-        });
-        btn.classList.add('bg-white', 'text-slate-900', 'shadow-xs');
-        btn.classList.remove('text-slate-600');
-        state.chartType = btn.dataset.chart;
+      // Primary View Tabs (Visual vs Table)
+      dom.tabVisual.addEventListener('click', () => {
+        state.activeView = 'visual';
+        dom.tabVisual.className = 'px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-white text-indigo-700 shadow-sm transition flex items-center gap-1.5';
+        dom.tabTable.className = 'px-3.5 py-1.5 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-900 transition flex items-center gap-1.5';
+        dom.visualViewContainer.classList.remove('hidden');
+        dom.tableViewContainer.classList.add('hidden');
+        dom.visualSubcontrols.classList.remove('hidden');
         renderVisualView();
       });
-    });
 
-    // Search Filter & Top-N Limit
-    dom.filterInput.addEventListener('input', (e) => {
-      state.searchTerm = e.target.value;
-      applyFilterAndRender();
-    });
-
-    dom.limitSelect.addEventListener('change', (e) => {
-      state.limit = e.target.value;
-      if (state.viewMode === 'visual') renderVisualView();
-    });
-
-    // Table Sorting
-    document.querySelectorAll('.sort-header').forEach(th => {
-      th.addEventListener('click', () => {
-        const col = th.dataset.sort;
-        if (state.sortCol === col) {
-          state.sortAsc = !state.sortAsc;
-        } else {
-          state.sortCol = col;
-          state.sortAsc = col === 'label' || col === 'id' || col === 'rank';
-        }
+      dom.tabTable.addEventListener('click', () => {
+        state.activeView = 'table';
+        dom.tabTable.className = 'px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-white text-indigo-700 shadow-sm transition flex items-center gap-1.5';
+        dom.tabVisual.className = 'px-3.5 py-1.5 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-900 transition flex items-center gap-1.5';
+        dom.tableViewContainer.classList.remove('hidden');
+        dom.visualViewContainer.classList.add('hidden');
+        dom.visualSubcontrols.classList.add('hidden');
         renderTableView();
       });
-    });
 
-    // Export CSV / JSON
-    document.getElementById('btn-export-csv').addEventListener('click', () => {
-      if (!state.filteredResults.length) return;
-      const header = 'rank,property_id,property_uri,property_label,count,share_percent\n';
-      const rows = state.filteredResults.map(r =>
-        `${r.rank},"${r.id}","${r.pageUrl}","${r.label.replace(/"/g, '""')}",${r.count},${r.share.toFixed(4)}`
-      ).join('\n');
-      triggerDownload('wikidata-properties.csv', header + rows, 'text/csv;charset=utf-8;');
-    });
-
-    document.getElementById('btn-export-json').addEventListener('click', () => {
-      if (!state.filteredResults.length) return;
-      triggerDownload('wikidata-properties.json', JSON.stringify(state.filteredResults, null, 2), 'application/json');
-    });
-
-    // Modal: Inspect Full Query
-    document.getElementById('btn-inspect-query').addEventListener('click', () => {
-      dom.fullQueryPreview.textContent = buildFullQuery();
-      dom.queryModal.classList.remove('hidden');
-    });
-
-    const closeModal = () => dom.queryModal.classList.add('hidden');
-    document.getElementById('btn-close-modal').addEventListener('click', closeModal);
-    document.getElementById('btn-close-modal-2').addEventListener('click', closeModal);
-    dom.queryModal.addEventListener('click', (e) => {
-      if (e.target === dom.queryModal) closeModal();
-    });
-
-    document.getElementById('btn-copy-query').addEventListener('click', () => {
-      const textArea = document.createElement('textarea');
-      textArea.value = dom.fullQueryPreview.textContent;
-      document.body.appendChild(textArea);
-      textArea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textArea);
-
-      dom.copyFeedback.classList.remove('opacity-0');
-      setTimeout(() => dom.copyFeedback.classList.add('opacity-0'), 2000);
-    });
-
-    // Download Standalone HTML file for GitHub Pages
-    document.getElementById('btn-download-html').addEventListener('click', () => {
-      const htmlContent = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
-      triggerDownload('index.html', htmlContent, 'text/html;charset=utf-8;');
-    });
-
-    // Responsive Redraw on Window Resize
-    let resizeTimer;
-    window.addEventListener('resize', () => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        if (state.viewMode === 'visual' && state.filteredResults.length > 0) {
+      // Visual chart sub-type buttons
+      document.querySelectorAll('.chart-type-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          state.chartType = btn.getAttribute('data-chart');
+          document.querySelectorAll('.chart-type-btn').forEach(b => {
+            b.className = 'chart-type-btn px-2.5 py-1 text-xs font-medium rounded-lg text-slate-600 hover:text-slate-900 transition';
+          });
+          btn.className = 'chart-type-btn px-2.5 py-1 text-xs font-medium rounded-lg bg-white text-slate-900 shadow-xs transition';
           renderVisualView();
-        }
-      }, 180);
-    });
+        });
+      });
 
-    // Automatically run the default Writers query on page load
+      // Filter & Limit controls
+      dom.filterInput.addEventListener('input', (e) => {
+        state.filterText = e.target.value;
+        renderActiveView();
+      });
+
+      dom.limitSelect.addEventListener('change', (e) => {
+        state.limit = e.target.value;
+        renderActiveView();
+      });
+
+      // Table column sorting
+      document.querySelectorAll('.sort-header').forEach(th => {
+        th.addEventListener('click', () => {
+          const field = th.getAttribute('data-sort');
+          if (state.sortBy === field) {
+            state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
+          } else {
+            state.sortBy = field;
+            state.sortDir = (field === 'count' || field === 'rank') ? 'desc' : 'asc';
+          }
+          renderTableView();
+        });
+      });
+
+      // Export CSV / JSON
+      document.getElementById('btn-export-csv').addEventListener('click', () => {
+        if (!state.results.length) return;
+        const header = 'rank,property_id,property_label,count,share_percent,wikidata_url\n';
+        const lines = state.results.map(r =>
+          `${r.rank},"${r.id}","${r.label.replace(/"/g, '""')}",${r.count},${r.share.toFixed(4)},"${r.url}"`
+        ).join('\n');
+        triggerDownload('wikidata-property-usage.csv', header + lines, 'text/csv;charset=utf-8;');
+      });
+
+      document.getElementById('btn-export-json').addEventListener('click', () => {
+        if (!state.results.length) return;
+        triggerDownload('wikidata-property-usage.json', JSON.stringify(state.results, null, 2), 'application/json');
+      });
+
+      // Inspect Embedded Query Modal
+      document.getElementById('btn-inspect-query').addEventListener('click', () => {
+        dom.fullQueryPreview.textContent = buildFullQuery();
+        dom.queryModal.classList.remove('hidden');
+      });
+
+      const closeModal = () => dom.queryModal.classList.add('hidden');
+      document.getElementById('btn-close-modal').addEventListener('click', closeModal);
+      document.getElementById('btn-close-modal-2').addEventListener('click', closeModal);
+      dom.queryModal.addEventListener('click', (e) => {
+        if (e.target === dom.queryModal) closeModal();
+      });
+
+      // Copy SPARQL query to clipboard
+      document.getElementById('btn-copy-query').addEventListener('click', () => {
+        const text = buildFullQuery();
+        const temp = document.createElement('textarea');
+        temp.value = text;
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand('copy');
+        document.body.removeChild(temp);
+
+        dom.copyFeedback.classList.remove('opacity-0');
+        setTimeout(() => dom.copyFeedback.classList.add('opacity-0'), 2000);
+      });
+
+      // Download standalone index.html
+      document.getElementById('btn-download-html').addEventListener('click', () => {
+        const htmlDoc = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+        triggerDownload('index.html', htmlDoc, 'text/html;charset=utf-8;');
+      });
+
+      // Responsive redraw on window resize
+      let resizeTimer;
+      window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => {
+          if (state.activeView === 'visual' && state.results.length) {
+            renderVisualView();
+          }
+        }, 200);
+      });
+    }
+
+    // Initialize on load and run the default writers query immediately
     window.addEventListener('DOMContentLoaded', () => {
-      executeQuery();
+      initEventListeners();
+      runPropertyAnalysis();
     });
   </script>
 </body>

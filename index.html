@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wikidata SPARQL Property Explorer</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  
+  <!-- D3.js v7 for interactive Bubble/Treemap/Bar visualizations -->
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+        }
+      }
+    }
+  </script>
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #f8fafc;
+      color: #0f172a;
+    }
+    .code-font {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    /* Custom scrollbar for code blocks and tables */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+    /* D3 Tooltip styling */
+    #chart-tooltip {
+      pointer-events: none;
+      transition: opacity 0.15s ease, transform 0.1s ease;
+    }
+    .node-group {
+      cursor: pointer;
+      transition: filter 0.15s ease;
+    }
+    .node-group:hover {
+      filter: brightness(1.06);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Top Navigation Header -->
+  <header class="bg-white border-b border-slate-200 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
+          <!-- Wikidata-inspired bar/graph icon -->
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-base sm:text-lg font-bold text-slate-900 leading-tight">Wikidata Property Usage Explorer</h1>
+          <p class="text-xs text-slate-500 hidden sm:block">Analyze direct truthy properties (<code class="text-indigo-600 font-mono">wdt:*</code>) across any SPARQL entity set</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <button id="btn-inspect-query" type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition">
+          <svg class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5" />
+          </svg>
+          <span>Inspect Embedded Query</span>
+        </button>
+        <button id="btn-download-html" type="button" title="Download this standalone index.html for GitHub Pages" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+          </svg>
+          <span class="hidden md:inline">Save index.html</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content Grid -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+      
+      <!-- Left Column: SPARQL Query Input & Settings (4 cols on lg) -->
+      <section class="lg:col-span-4 bg-white rounded-2xl border border-slate-200 shadow-sm p-5 space-y-4">
+        <div class="flex items-center justify-between">
+          <h2 class="text-sm font-semibold text-slate-900 uppercase tracking-wider">1. Entity Subquery</h2>
+          <span class="text-xs text-slate-400">SPARQL 1.1</span>
+        </div>
+
+        <!-- Preset Examples -->
+        <div>
+          <label for="preset-select" class="block text-xs font-medium text-slate-600 mb-1">Load Example Query</label>
+          <select id="preset-select" class="w-full text-xs rounded-xl border border-slate-300 bg-slate-50 px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500">
+            <option value="writers">Writers (wd:Q36180) — Default</option>
+            <option value="nobel_physics">Nobel Prize in Physics Laureates</option>
+            <option value="eu_capitals">Capitals of EU Member States</option>
+            <option value="programming_langs">Programming Languages</option>
+            <option value="museums_berlin">Museums in Berlin</option>
+          </select>
+        </div>
+
+        <!-- User Subquery Textarea -->
+        <div>
+          <div class="flex items-center justify-between mb-1">
+            <label for="sparql-input" class="block text-xs font-medium text-slate-600">Inner SELECT Query</label>
+            <button id="btn-format-query" type="button" class="text-xs text-indigo-600 hover:text-indigo-800 font-medium">Reset Default</button>
+          </div>
+          <textarea id="sparql-input" rows="8" spellcheck="false" class="w-full code-font text-xs leading-relaxed rounded-xl border border-slate-300 bg-slate-900 text-slate-100 p-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" placeholder="SELECT ?person WHERE { ?person wdt:P106 wd:Q36180. }">SELECT
+?person
+WHERE
+{
+?person
+wdt:P106
+wd:Q36180.
+}</textarea>
+          <p class="mt-1.5 text-[11px] text-slate-500">
+            Embedded inside <code class="bg-slate-100 px-1 py-0.5 rounded text-slate-700">{ &lt;YOUR_QUERY&gt; }</code> and joined with <code class="bg-slate-100 px-1 py-0.5 rounded text-slate-700"><span id="inline-var-preview">?person</span> ?p [] .</code>
+          </p>
+        </div>
+
+        <!-- Configuration Options -->
+        <div class="pt-2 border-t border-slate-100 space-y-3">
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label for="target-var" class="block text-xs font-medium text-slate-600 mb-1">Target Variable</label>
+              <input id="target-var" type="text" value="?person" class="w-full code-font text-xs rounded-xl border border-slate-300 px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+            <div>
+              <label for="label-lang" class="block text-xs font-medium text-slate-600 mb-1">Label Language</label>
+              <input id="label-lang" type="text" value="en" maxlength="10" class="w-full code-font text-xs rounded-xl border border-slate-300 px-3 py-2 text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="en, de, fr..." />
+            </div>
+          </div>
+
+          <div>
+            <label for="endpoint-select" class="block text-xs font-medium text-slate-600 mb-1">SPARQL Endpoint</label>
+            <select id="endpoint-select" class="w-full text-xs rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              <option value="qlever" selected>QLever Wikidata (Fast, uses @lang@rdfs:label)</option>
+              <option value="wdqs">Official Wikidata Query Service (WDQS)</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- Execute Button -->
+        <button id="btn-run-query" type="button" class="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-semibold text-sm rounded-xl shadow-sm transition flex items-center justify-center gap-2 cursor-pointer">
+          <svg id="run-icon" class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.348a1.125 1.125 0 010 1.971l-11.54 6.347a1.125 1.125 0 01-1.667-.985V5.653z" />
+          </svg>
+          <svg id="loading-spinner" class="w-4 h-4 animate-spin hidden" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+          <span id="run-btn-text">Analyze Properties</span>
+        </button>
+
+        <!-- Error Alert Box -->
+        <div id="error-box" class="hidden rounded-xl bg-red-50 border border-red-200 p-3.5 text-xs text-red-800 space-y-1">
+          <div class="font-semibold flex items-center gap-1.5 text-red-900">
+            <svg class="w-4 h-4 text-red-600 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+            <span>Query Execution Failed</span>
+          </div>
+          <p id="error-message" class="leading-relaxed break-words text-red-700"></p>
+        </div>
+      </section>
+
+      <!-- Right Column: Visualization & Tabular Output (8 cols on lg) -->
+      <section class="lg:col-span-8 bg-white rounded-2xl border border-slate-200 shadow-sm flex flex-col min-h-[600px]">
+        
+        <!-- Results Header & Controls Bar -->
+        <div class="p-4 sm:p-5 border-b border-slate-200 space-y-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 class="text-sm font-semibold text-slate-900 uppercase tracking-wider">2. Property Distribution</h2>
+              <p id="stats-summary" class="text-xs text-slate-500 mt-0.5">Ready to query Wikidata properties</p>
+            </div>
+
+            <!-- Primary View Mode Switcher: Visual vs Tabular -->
+            <div class="inline-flex rounded-xl bg-slate-100 p-1 border border-slate-200" role="tablist">
+              <button id="tab-visual" type="button" role="tab" aria-selected="true" class="px-3.5 py-1.5 text-xs font-semibold rounded-lg bg-white text-indigo-700 shadow-sm transition flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 14.25v2.25m3-4.5v4.5m3-6.75v6.75m3-9v9M6 20.25h12A2.25 2.25 0 0020.25 18V6A2.25 2.25 0 0018 3.75H6A2.25 2.25 0 003.75 6v12A2.25 2.25 0 006 20.25z" />
+                </svg>
+                <span>Visual View</span>
+              </button>
+              <button id="tab-table" type="button" role="tab" aria-selected="false" class="px-3.5 py-1.5 text-xs font-semibold rounded-lg text-slate-600 hover:text-slate-900 transition flex items-center gap-1.5">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3.375 19.5h17.25m-17.25 0a1.125 1.125 0 01-1.125-1.125M3.375 19.5h7.5c.621 0 1.125-.504 1.125-1.125m-9.75 0V5.625m0 12.75v-1.5c0-.621.504-1.125 1.125-1.125m18.375 2.625V5.625m0 12.75c0 .621-.504 1.125-1.125 1.125m1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125m0 3.75h-7.5A1.125 1.125 0 0112 18.375m9.75-12.75c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125m19.5 0v1.5c0 .621-.504 1.125-1.125 1.125M2.25 5.625v1.5c0 .621.504 1.125 1.125 1.125m0 0h17.25" />
+                </svg>
+                <span>Tabular View</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Filter & Chart Type Toolbar -->
+          <div class="flex flex-wrap items-center justify-between gap-3 pt-1">
+            <!-- Search Input -->
+            <div class="relative flex-1 min-w-[200px]">
+              <svg class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+              <input id="filter-input" type="text" placeholder="Filter by property name or ID (e.g. P31, occupation)..." class="w-full pl-9 pr-3 py-1.5 text-xs rounded-xl border border-slate-300 bg-slate-50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500" />
+            </div>
+
+            <!-- Visual Chart Sub-switcher & Limit -->
+            <div class="flex flex-wrap items-center gap-2">
+              <div id="visual-subcontrols" class="inline-flex rounded-xl bg-slate-100 p-0.5 border border-slate-200">
+                <button type="button" data-chart="bubbles" class="chart-type-btn px-2.5 py-1 text-xs font-medium rounded-lg bg-white text-slate-900 shadow-xs transition">Bubbles</button>
+                <button type="button" data-chart="bars" class="chart-type-btn px-2.5 py-1 text-xs font-medium rounded-lg text-slate-600 hover:text-slate-900 transition">Bar Chart</button>
+                <button type="button" data-chart="treemap" class="chart-type-btn px-2.5 py-1 text-xs font-medium rounded-lg text-slate-600 hover:text-slate-900 transition">Treemap</button>
+              </div>
+
+              <select id="limit-select" class="text-xs rounded-xl border border-slate-300 bg-white px-2.5 py-1.5 text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                <option value="25">Top 25</option>
+                <option value="50" selected>Top 50</option>
+                <option value="100">Top 100</option>
+                <option value="250">Top 250</option>
+                <option value="all">All Properties</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
+        <!-- View 1: Visual Chart Container -->
+        <div id="visual-view-container" class="flex-1 flex flex-col relative p-4">
+          <div class="flex items-center justify-between text-[11px] text-slate-500 mb-2 px-1">
+            <span>Click any property to open its Wikidata entity page in a new tab</span>
+            <span id="visual-showing-badge" class="font-medium text-slate-600"></span>
+          </div>
+          
+          <div id="chart-canvas-wrapper" class="flex-1 w-full min-h-[480px] rounded-xl bg-slate-50/70 border border-slate-100 relative overflow-hidden flex items-center justify-center">
+            <!-- D3 SVG renders here -->
+            <div id="empty-state" class="text-center p-8 max-w-sm">
+              <div class="w-12 h-12 rounded-2xl bg-indigo-50 text-indigo-600 mx-auto flex items-center justify-center mb-3">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                </svg>
+              </div>
+              <h3 class="text-sm font-semibold text-slate-800">No Data Loaded Yet</h3>
+              <p class="text-xs text-slate-500 mt-1">Click <strong>Analyze Properties</strong> to run the embedded SPARQL query and visualize property frequencies.</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- View 2: Tabular View Container -->
+        <div id="table-view-container" class="hidden flex-1 flex flex-col">
+          <div class="px-5 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2">
+            <span class="text-xs text-slate-500">Click column headers to sort &bull; Click any row link to visit Wikidata</span>
+            <div class="flex items-center gap-2">
+              <button id="btn-export-csv" type="button" class="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition">Export CSV</button>
+              <button id="btn-export-json" type="button" class="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition">Export JSON</button>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto flex-1 max-h-[560px]">
+            <table class="w-full text-left border-collapse">
+              <thead class="bg-slate-50 sticky top-0 z-10 border-b border-slate-200 text-[11px] font-semibold text-slate-600 uppercase tracking-wider">
+                <tr>
+                  <th data-sort="rank" class="sort-header py-3 px-4 cursor-pointer hover:bg-slate-100 w-16">#</th>
+                  <th data-sort="id" class="sort-header py-3 px-4 cursor-pointer hover:bg-slate-100 w-28">Property ID</th>
+                  <th data-sort="label" class="sort-header py-3 px-4 cursor-pointer hover:bg-slate-100">Property Label</th>
+                  <th data-sort="count" class="sort-header py-3 px-4 cursor-pointer hover:bg-slate-100 text-right w-32">Count (?n) ↓</th>
+                  <th class="py-3 px-4 w-44">Relative Share</th>
+                </tr>
+              </thead>
+              <tbody id="results-table-body" class="divide-y divide-slate-100 text-xs">
+                <!-- Rows injected via JS -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+      </section>
+    </div>
+  </main>
+
+  <!-- Floating Tooltip for D3 Visualizations -->
+  <div id="chart-tooltip" class="fixed z-50 opacity-0 bg-slate-900/95 text-white rounded-xl px-3.5 py-2.5 shadow-xl border border-slate-700 text-xs max-w-xs">
+    <div class="flex items-center justify-between gap-3 mb-1">
+      <span id="tt-label" class="font-semibold text-sm text-white"></span>
+      <span id="tt-pid" class="code-font text-[11px] bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 px-1.5 py-0.5 rounded"></span>
+    </div>
+    <div class="text-slate-300 space-y-0.5">
+      <div>Statements: <strong id="tt-count" class="text-white font-mono"></strong></div>
+      <div>Share of total: <strong id="tt-share" class="text-emerald-300 font-mono"></strong></div>
+    </div>
+    <div class="mt-1.5 pt-1 border-t border-slate-700/80 text-[10px] text-slate-400">
+      Click to open Wikidata property page ↗
+    </div>
+  </div>
+
+  <!-- Modal: Inspect Full Embedded SPARQL Query -->
+  <div id="query-modal" class="fixed inset-0 z-50 hidden bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-2xl border border-slate-200 shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col">
+      <div class="px-5 py-4 border-b border-slate-200 flex items-center justify-between">
+        <div>
+          <h3 class="text-sm font-bold text-slate-900">Generated Outer SPARQL Query</h3>
+          <p class="text-xs text-slate-500">This is the exact query sent to the selected SPARQL endpoint</p>
+        </div>
+        <button id="btn-close-modal" type="button" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <div class="p-5 bg-slate-50">
+        <pre id="full-query-preview" class="code-font text-xs leading-relaxed bg-slate-900 text-slate-100 p-4 rounded-xl overflow-x-auto max-h-[380px]"></pre>
+      </div>
+      <div class="px-5 py-3.5 bg-white border-t border-slate-200 flex items-center justify-between">
+        <span id="copy-feedback" class="text-xs text-emerald-600 font-medium opacity-0 transition-opacity">Copied to clipboard!</span>
+        <div class="flex items-center gap-2">
+          <button id="btn-copy-query" type="button" class="px-3.5 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl transition">Copy SPARQL</button>
+          <button id="btn-close-modal-2" type="button" class="px-3.5 py-1.5 text-xs font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /**
+     * Wikidata SPARQL Property Usage Explorer
+     * Embeds a user-supplied SPARQL SELECT query into an outer aggregation query
+     * to count truthy direct claims (wdt:*) and renders interactive D3 charts or tables.
+     */
+
+    const PRESETS = {
+      writers: {
+        varName: '?person',
+        query: `SELECT\n?person\nWHERE\n{\n?person\nwdt:P106\nwd:Q36180.\n}`
+      },
+      nobel_physics: {
+        varName: '?laureate',
+        query: `SELECT ?laureate WHERE {\n  ?laureate wdt:P166 wd:Q38104.\n}`
+      },
+      eu_capitals: {
+        varName: '?capital',
+        query: `SELECT DISTINCT ?capital WHERE {\n  ?country wdt:P463 wd:Q458;\n           wdt:P36 ?capital.\n}`
+      },
+      programming_langs: {
+        varName: '?lang',
+        query: `SELECT ?lang WHERE {\n  ?lang wdt:P31 wd:Q9143.\n}`
+      },
+      museums_berlin: {
+        varName: '?museum',
+        query: `SELECT ?museum WHERE {\n  ?museum wdt:P31/wdt:P279* wd:Q33506;\n          wdt:P131 wd:Q64.\n}`
+      }
+    };
+
+    const ENDPOINTS = {
+      qlever: 'https://qlever.cs.uni-freiburg.de/api/wikidata',
+      wdqs: 'https://query.wikidata.org/sparql'
+    };
+
+    // Application State
+    const state = {
+      results: [],          // Full parsed list: { uri, id, numId, label, count, share }
+      filteredResults: [],  // Filtered by search text
+      viewMode: 'visual',   // 'visual' | 'table'
+      chartType: 'bubbles', // 'bubbles' | 'bars' | 'treemap'
+      limit: 50,            // Number or 'all'
+      searchTerm: '',
+      sortCol: 'count',
+      sortAsc: false,
+      totalStatements: 0
+    };
+
+    // DOM References
+    const dom = {
+      presetSelect: document.getElementById('preset-select'),
+      sparqlInput: document.getElementById('sparql-input'),
+      targetVar: document.getElementById('target-var'),
+      inlineVarPreview: document.getElementById('inline-var-preview'),
+      labelLang: document.getElementById('label-lang'),
+      endpointSelect: document.getElementById('endpoint-select'),
+      btnRun: document.getElementById('btn-run-query'),
+      runIcon: document.getElementById('run-icon'),
+      loadingSpinner: document.getElementById('loading-spinner'),
+      runBtnText: document.getElementById('run-btn-text'),
+      errorBox: document.getElementById('error-box'),
+      errorMessage: document.getElementById('error-message'),
+      statsSummary: document.getElementById('stats-summary'),
+      tabVisual: document.getElementById('tab-visual'),
+      tabTable: document.getElementById('tab-table'),
+      visualSubcontrols: document.getElementById('visual-subcontrols'),
+      visualContainer: document.getElementById('visual-view-container'),
+      tableContainer: document.getElementById('table-view-container'),
+      chartWrapper: document.getElementById('chart-canvas-wrapper'),
+      emptyState: document.getElementById('empty-state'),
+      visualShowingBadge: document.getElementById('visual-showing-badge'),
+      filterInput: document.getElementById('filter-input'),
+      limitSelect: document.getElementById('limit-select'),
+      tableBody: document.getElementById('results-table-body'),
+      tooltip: document.getElementById('chart-tooltip'),
+      ttLabel: document.getElementById('tt-label'),
+      ttPid: document.getElementById('tt-pid'),
+      ttCount: document.getElementById('tt-count'),
+      ttShare: document.getElementById('tt-share'),
+      queryModal: document.getElementById('query-modal'),
+      fullQueryPreview: document.getElementById('full-query-preview'),
+      copyFeedback: document.getElementById('copy-feedback')
+    };
+
+    /**
+     * Automatically detects the first SELECT variable (e.g., ?person) from user query
+     */
+    function detectTargetVariable(queryText) {
+      const cleaned = queryText.replace(/#.*$/gm, ''); // strip SPARQL comments
+      const selectMatch = cleaned.match(/\bSELECT\b(?:\s+DISTINCT|\s+REDUCED)?\s+([?$][A-Za-z_][A-Za-z0-9_]*)/i);
+      if (selectMatch && selectMatch[1]) {
+        return selectMatch[1].replace('$', '?');
+      }
+      return null;
+    }
+
+    /**
+     * Builds the complete outer SPARQL query embedding the user's inner query
+     */
+    function buildFullQuery() {
+      const innerQuery = dom.sparqlInput.value.trim();
+      let targetVar = dom.targetVar.value.trim();
+      if (!targetVar.startsWith('?') && !targetVar.startsWith('$')) {
+        targetVar = '?' + (targetVar || 'person');
+      }
+      const lang = (dom.labelLang.value.trim() || 'en').replace(/[^a-zA-Z0-9-]/g, '');
+      const endpointKey = dom.endpointSelect.value;
+
+      // QLever supports the concise `@en@rdfs:label` syntax requested by the user;
+      // Official WDQS requires standard SPARQL `rdfs:label ?propertyLabel . FILTER(LANG(?propertyLabel) = "en")`
+      const labelPattern = endpointKey === 'qlever'
+        ? `?property @${lang}@rdfs:label ?propertyLabel .`
+        : `?property rdfs:label ?propertyLabel .\n  FILTER(LANG(?propertyLabel) = "${lang}")`;
+
+      return `PREFIX wdt: <http://www.wikidata.org/prop/direct/>
+PREFIX wd: <http://www.wikidata.org/entity/>
+PREFIX wikibase: <http://wikiba.se/ontology#>
+PREFIX rdfs: <http://www.w3.org/2000/01/rdf-schema#>
+SELECT ?property ?propertyLabel (COUNT(*) AS ?n) {
+{ ${innerQuery} }
+
+${targetVar} ?p [] .
+?property wikibase:directClaim ?p .
+${labelPattern}
+  
+} GROUP BY ?property ?propertyLabel ORDER BY DESC(?n)`;
+    }
+
+    /**
+     * Executes the embedded SPARQL query against the selected endpoint
+     */
+    async function executeQuery() {
+      const innerQuery = dom.sparqlInput.value.trim();
+      if (!innerQuery) {
+        showError('Please enter a SPARQL SELECT query first.');
+        return;
+      }
+
+      hideError();
+      setLoading(true);
+
+      const fullQuery = buildFullQuery();
+      const endpointUrl = ENDPOINTS[dom.endpointSelect.value];
+
+      try {
+        const params = new URLSearchParams();
+        params.append('query', fullQuery);
+
+        const response = await fetch(endpointUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+            'Accept': 'application/sparql-results+json'
+          },
+          body: params.toString()
+        });
+
+        if (!response.ok) {
+          const errText = await response.text();
+          throw new Error(`HTTP ${response.status}: ${errText.slice(0, 300) || response.statusText}`);
+        }
+
+        const data = await response.json();
+        const bindings = data?.results?.bindings || [];
+
+        if (bindings.length === 0) {
+          state.results = [];
+          state.totalStatements = 0;
+          applyFilterAndRender();
+          showError('Query succeeded, but returned 0 properties. Check your inner query or target variable name.');
+          return;
+        }
+
+        // Parse bindings into clean objects
+        let total = 0;
+        const parsed = bindings.map(row => {
+          const uri = row.property?.value || '';
+          // Extract P-ID (e.g., http://www.wikidata.org/entity/P31 -> P31)
+          const idMatch = uri.match(/\/(P\d+)$/);
+          const id = idMatch ? idMatch[1] : uri.split('/').pop();
+          const numId = idMatch ? parseInt(idMatch[1].slice(1), 10) : 999999999;
+          const label = row.propertyLabel?.value || id;
+          const count = parseInt(row.n?.value || '0', 10);
+          total += count;
+
+          // Ensure clickable URL points to canonical Wikidata property page
+          const pageUrl = id.startsWith('P')
+            ? `https://www.wikidata.org/wiki/Property:${id}`
+            : uri;
+
+          return { uri, pageUrl, id, numId, label, count, share: 0 };
+        });
+
+        // Compute relative percentage share and initial rank
+        parsed.forEach((item, idx) => {
+          item.rank = idx + 1;
+          item.share = total > 0 ? (item.count / total) * 100 : 0;
+        });
+
+        state.results = parsed;
+        state.totalStatements = total;
+        applyFilterAndRender();
+
+      } catch (err) {
+        console.error('SPARQL Query Error:', err);
+        showError(err.message || 'Network or syntax error while contacting the SPARQL endpoint.');
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    /**
+     * Filters and sorts results based on UI state, then renders active view
+     */
+    function applyFilterAndRender() {
+      const term = state.searchTerm.toLowerCase().trim();
+      state.filteredResults = term
+        ? state.results.filter(d => d.label.toLowerCase().includes(term) || d.id.toLowerCase().includes(term))
+        : [...state.results];
+
+      // Update summary header
+      if (state.results.length > 0) {
+        dom.statsSummary.innerHTML = `Found <strong>${state.results.length.toLocaleString()}</strong> distinct properties across <strong>${state.totalStatements.toLocaleString()}</strong> direct statements`;
+      } else {
+        dom.statsSummary.textContent = 'No properties found';
+      }
+
+      if (state.viewMode === 'visual') {
+        renderVisualView();
+      } else {
+        renderTableView();
+      }
+    }
+
+    /**
+     * Renders the interactive D3.js Visualization (Bubbles, Horizontal Bars, or Treemap)
+     */
+    function renderVisualView() {
+      // Clear previous SVG while preserving emptyState if needed
+      const existingSvg = dom.chartWrapper.querySelector('svg');
+      if (existingSvg) existingSvg.remove();
+
+      if (state.filteredResults.length === 0) {
+        dom.emptyState.classList.remove('hidden');
+        dom.visualShowingBadge.textContent = '';
+        return;
+      }
+
+      dom.emptyState.classList.add('hidden');
+
+      const limitVal = state.limit === 'all' ? state.filteredResults.length : parseInt(state.limit, 10);
+      const dataSlice = state.filteredResults.slice(0, limitVal);
+      dom.visualShowingBadge.textContent = `Showing top ${dataSlice.length} of ${state.filteredResults.length} properties`;
+
+      const rect = dom.chartWrapper.getBoundingClientRect();
+      const width = Math.max(rect.width || 720, 320);
+
+      // Rich scholarly color palette
+      const colorScale = d3.scaleOrdinal()
+        .range([
+          '#4f46e5', '#0284c7', '#0d9488', '#059669', '#2563eb',
+          '#7c3aed', '#db2777', '#d97706', '#4338ca', '#0369a1',
+          '#0f766e', '#6d28d9', '#be185d', '#b45309'
+        ]);
+
+      if (state.chartType === 'bubbles') {
+        renderBubbleChart(dataSlice, width, 540, colorScale);
+      } else if (state.chartType === 'treemap') {
+        renderTreemapChart(dataSlice, width, 540, colorScale);
+      } else {
+        renderBarChart(dataSlice, width, colorScale);
+      }
+    }
+
+    /**
+     * 1. Packed Circle / Bubble Chart
+     */
+    function renderBubbleChart(data, width, height, colorScale) {
+      const svg = d3.select(dom.chartWrapper)
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height)
+        .attr('viewBox', `0 0 ${width} ${height}`)
+        .style('max-width', '100%')
+        .style('height', 'auto');
+
+      const root = d3.hierarchy({ children: data })
+        .sum(d => d.count)
+        .sort((a, b) => b.value - a.value);
+
+      const pack = d3.pack()
+        .size([width - 16, height - 16])
+        .padding(4);
+
+      const nodes = pack(root).leaves();
+
+      const groups = svg.selectAll('g')
+        .data(nodes)
+        .join('g')
+        .attr('class', 'node-group')
+        .attr('transform', d => `translate(${d.x + 8},${d.y + 8})`)
+        .on('mouseenter', (event, d) => showTooltip(event, d.data))
+        .on('mousemove', moveTooltip)
+        .on('mouseleave', hideTooltip)
+        .on('click', (event, d) => window.open(d.data.pageUrl, '_blank', 'noopener'));
+
+      groups.append('circle')
+        .attr('r', d => d.r)
+        .attr('fill', (d, i) => colorScale(i))
+        .attr('fill-opacity', 0.9)
+        .attr('stroke', '#ffffff')
+        .attr('stroke-width', 2);
+
+      // Add readable labels inside bubbles large enough to hold text
+      groups.each(function(d) {
+        if (d.r < 20) return;
+        const g = d3.select(this);
+        const maxChars = Math.floor((d.r * 1.65) / 6.5);
+        const label = d.data.label.length > maxChars
+          ? d.data.label.slice(0, Math.max(3, maxChars - 1)) + '…'
+          : d.data.label;
+
+        g.append('text')
+          .attr('text-anchor', 'middle')
+          .attr('dy', d.r > 32 ? '-0.15em' : '0.32em')
+          .attr('fill', '#ffffff')
+          .style('font-size', `${Math.min(13, Math.max(9, d.r / 3.6))}px`)
+          .style('font-weight', '600')
+          .style('pointer-events', 'none')
+          .text(label);
+
+        if (d.r > 32) {
+          g.append('text')
+            .attr('text-anchor', 'middle')
+            .attr('dy', '1.15em')
+            .attr('fill', 'rgba(255,255,255,0.85)')
+            .style('font-size', `${Math.min(11, Math.max(8, d.r / 4.5))}px`)
+            .style('font-family', 'JetBrains Mono, monospace')
+            .style('pointer-events', 'none')
+            .text(`${d.data.count.toLocaleString()}`);
+        }
+      });
+    }
+
+    /**
+     * 2. Horizontal Bar Chart
+     */
+    function renderBarChart(data, width, colorScale) {
+      const barHeight = 30;
+      const gap = 8;
+      const margin = { top: 16, right: 85, bottom: 20, left: Math.min(230, width * 0.36) };
+      const height = Math.max(460, data.length * (barHeight + gap) + margin.top + margin.bottom);
+
+      const svg = d3.select(dom.chartWrapper)
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height)
+        .attr('viewBox', `0 0 ${width} ${height}`)
+        .style('max-width', '100%');
+
+      const innerWidth = Math.max(120, width - margin.left - margin.right);
+      const maxCount = d3.max(data, d => d.count) || 1;
+
+      const x = d3.scaleLinear()
+        .domain([0, maxCount])
+        .range([0, innerWidth]);
+
+      const g = svg.append('g')
+        .attr('transform', `translate(${margin.left},${margin.top})`);
+
+      const rows = g.selectAll('.bar-row')
+        .data(data)
+        .join('g')
+        .attr('class', 'node-group bar-row')
+        .attr('transform', (d, i) => `translate(0, ${i * (barHeight + gap)})`)
+        .on('mouseenter', (event, d) => showTooltip(event, d))
+        .on('mousemove', moveTooltip)
+        .on('mouseleave', hideTooltip)
+        .on('click', (event, d) => window.open(d.pageUrl, '_blank', 'noopener'));
+
+      // Background track
+      rows.append('rect')
+        .attr('x', 0)
+        .attr('y', 0)
+        .attr('width', innerWidth)
+        .attr('height', barHeight)
+        .attr('rx', 6)
+        .attr('fill', '#e2e8f0')
+        .attr('fill-opacity', 0.45);
+
+      // Value bar
+      rows.append('rect')
+        .attr('x', 0)
+        .attr('y', 0)
+        .attr('width', d => Math.max(4, x(d.count)))
+        .attr('height', barHeight)
+        .attr('rx', 6)
+        .attr('fill', (d, i) => colorScale(i));
+
+      // Left label (Property Name + ID)
+      rows.append('text')
+        .attr('x', -10)
+        .attr('y', barHeight / 2)
+        .attr('dy', '0.35em')
+        .attr('text-anchor', 'end')
+        .attr('fill', '#1e293b')
+        .style('font-size', '11.5px')
+        .style('font-weight', '500')
+        .text(d => {
+          const maxChars = Math.floor(margin.left / 7);
+          const full = `${d.label} (${d.id})`;
+          return full.length > maxChars ? full.slice(0, maxChars - 1) + '…' : full;
+        });
+
+      // Right count label
+      rows.append('text')
+        .attr('x', d => x(d.count) + 8)
+        .attr('y', barHeight / 2)
+        .attr('dy', '0.35em')
+        .attr('fill', '#334155')
+        .style('font-size', '11px')
+        .style('font-family', 'JetBrains Mono, monospace')
+        .style('font-weight', '600')
+        .text(d => d.count.toLocaleString());
+    }
+
+    /**
+     * 3. Rectangular Treemap
+     */
+    function renderTreemapChart(data, width, height, colorScale) {
+      const svg = d3.select(dom.chartWrapper)
+        .append('svg')
+        .attr('width', width)
+        .attr('height', height)
+        .attr('viewBox', `0 0 ${width} ${height}`)
+        .style('max-width', '100%');
+
+      const root = d3.hierarchy({ children: data })
+        .sum(d => d.count)
+        .sort((a, b) => b.value - a.value);
+
+      d3.treemap()
+        .size([width - 12, height - 12])
+        .padding(3)
+        .round(true)(root);
+
+      const cells = svg.selectAll('g')
+        .data(root.leaves())
+        .join('g')
+        .attr('class', 'node-group')
+        .attr('transform', d => `translate(${d.x0 + 6},${d.y0 + 6})`)
+        .on('mouseenter', (event, d) => showTooltip(event, d.data))
+        .on('mousemove', moveTooltip)
+        .on('mouseleave', hideTooltip)
+        .on('click', (event, d) => window.open(d.data.pageUrl, '_blank', 'noopener'));
+
+      cells.append('rect')
+        .attr('width', d => Math.max(0, d.x1 - d.x0))
+        .attr('height', d => Math.max(0, d.y1 - d.y0))
+        .attr('rx', 6)
+        .attr('fill', (d, i) => colorScale(i));
+
+      cells.each(function(d) {
+        const w = d.x1 - d.x0;
+        const h = d.y1 - d.y0;
+        if (w < 46 || h < 24) return;
+
+        const g = d3.select(this);
+        const maxChars = Math.floor((w - 12) / 6.5);
+        const label = d.data.label.length > maxChars
+          ? d.data.label.slice(0, Math.max(3, maxChars - 1)) + '…'
+          : d.data.label;
+
+        g.append('text')
+          .attr('x', 8)
+          .attr('y', 18)
+          .attr('fill', '#ffffff')
+          .style('font-size', '11.5px')
+          .style('font-weight', '600')
+          .style('pointer-events', 'none')
+          .text(label);
+
+        if (h >= 38) {
+          g.append('text')
+            .attr('x', 8)
+            .attr('y', 33)
+            .attr('fill', 'rgba(255,255,255,0.85)')
+            .style('font-size', '10px')
+            .style('font-family', 'JetBrains Mono, monospace')
+            .style('pointer-events', 'none')
+            .text(`${d.data.id} · ${d.data.count.toLocaleString()}`);
+        }
+      });
+    }
+
+    /**
+     * Renders the Sortable Tabular View
+     */
+    function renderTableView() {
+      const sorted = [...state.filteredResults].sort((a, b) => {
+        let cmp = 0;
+        if (state.sortCol === 'rank') cmp = a.rank - b.rank;
+        else if (state.sortCol === 'id') cmp = a.numId - b.numId;
+        else if (state.sortCol === 'label') cmp = a.label.localeCompare(b.label);
+        else cmp = a.count - b.count;
+        return state.sortAsc ? cmp : -cmp;
+      });
+
+      const maxCount = state.results.length > 0 ? state.results[0].count : 1;
+
+      if (sorted.length === 0) {
+        dom.tableBody.innerHTML = `
+          <tr>
+            <td colspan="5" class="py-12 text-center text-slate-400 text-xs">
+              No matching properties to display. Run a query or adjust your filter.
+            </td>
+          </tr>`;
+        return;
+      }
+
+      dom.tableBody.innerHTML = sorted.map(item => {
+        const barPct = Math.max(2, Math.round((item.count / maxCount) * 100));
+        return `
+          <tr class="hover:bg-indigo-50/40 transition-colors">
+            <td class="py-2.5 px-4 text-slate-400 font-mono">${item.rank}</td>
+            <td class="py-2.5 px-4 font-mono">
+              <a href="${item.pageUrl}" target="_blank" rel="noopener" class="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-100 hover:bg-indigo-100 text-indigo-700 font-medium transition">
+                ${escapeHtml(item.id)}
+              </a>
+            </td>
+            <td class="py-2.5 px-4 font-medium text-slate-800">
+              <a href="${item.pageUrl}" target="_blank" rel="noopener" class="hover:text-indigo-600 hover:underline inline-flex items-center gap-1.5">
+                <span>${escapeHtml(item.label)}</span>
+                <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H5.25A2.25 2.25 0 003 8.25v10.5A2.25 2.25 0 005.25 21h10.5A2.25 2.25 0 0018 18.75V10.5m-10.5 6L21 3m0 0h-5.25M21 3v5.25" />
+                </svg>
+              </a>
+            </td>
+            <td class="py-2.5 px-4 text-right font-mono font-semibold text-slate-900">
+              ${item.count.toLocaleString()}
+            </td>
+            <td class="py-2.5 px-4">
+              <div class="flex items-center gap-2">
+                <div class="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div class="h-full bg-indigo-600 rounded-full" style="width: ${barPct}%"></div>
+                </div>
+                <span class="text-[11px] font-mono text-slate-500 w-12 text-right">${item.share.toFixed(1)}%</span>
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    // Tooltip Helpers
+    function showTooltip(event, item) {
+      dom.ttLabel.textContent = item.label;
+      dom.ttPid.textContent = item.id;
+      dom.ttCount.textContent = item.count.toLocaleString();
+      dom.ttShare.textContent = `${item.share.toFixed(2)}%`;
+      dom.tooltip.classList.remove('opacity-0');
+      moveTooltip(event);
+    }
+
+    function moveTooltip(event) {
+      const pad = 14;
+      const ttRect = dom.tooltip.getBoundingClientRect();
+      let left = event.clientX + pad;
+      let top = event.clientY + pad;
+
+      if (left + ttRect.width > window.innerWidth - 12) {
+        left = event.clientX - ttRect.width - pad;
+      }
+      if (top + ttRect.height > window.innerHeight - 12) {
+        top = event.clientY - ttRect.height - pad;
+      }
+
+      dom.tooltip.style.left = `${left}px`;
+      dom.tooltip.style.top = `${top}px`;
+    }
+
+    function hideTooltip() {
+      dom.tooltip.classList.add('opacity-0');
+    }
+
+    // UI Helpers
+    function setLoading(isLoading) {
+      dom.btnRun.disabled = isLoading;
+      dom.runIcon.classList.toggle('hidden', isLoading);
+      dom.loadingSpinner.classList.toggle('hidden', !isLoading);
+      dom.runBtnText.textContent = isLoading ? 'Querying Endpoint...' : 'Analyze Properties';
+    }
+
+    function showError(msg) {
+      dom.errorMessage.textContent = msg;
+      dom.errorBox.classList.remove('hidden');
+    }
+
+    function hideError() {
+      dom.errorBox.classList.add('hidden');
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    function triggerDownload(filename, content, mimeType) {
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
+    // Event Listeners
+    dom.sparqlInput.addEventListener('input', () => {
+      const detected = detectTargetVariable(dom.sparqlInput.value);
+      if (detected) {
+        dom.targetVar.value = detected;
+        dom.inlineVarPreview.textContent = detected;
+      }
+    });
+
+    dom.targetVar.addEventListener('input', () => {
+      dom.inlineVarPreview.textContent = dom.targetVar.value || '?person';
+    });
+
+    dom.presetSelect.addEventListener('change', (e) => {
+      const preset = PRESETS[e.target.value];
+      if (preset) {
+        dom.sparqlInput.value = preset.query;
+        dom.targetVar.value = preset.varName;
+        dom.inlineVarPreview.textContent = preset.varName;
+        executeQuery();
+      }
+    });
+
+    document.getElementById('btn-format-query').addEventListener('click', () => {
+      dom.presetSelect.value = 'writers';
+      dom.sparqlInput.value = PRESETS.writers.query;
+      dom.targetVar.value = PRESETS.writers.varName;
+      dom.inlineVarPreview.textContent = PRESETS.writers.varName;
+    });
+
+    dom.btnRun.addEventListener('click', executeQuery);
+
+    // View Mode Switching (Visual vs Tabular)
+    dom.tabVisual.addEventListener('click', () => {
+      state.viewMode = 'visual';
+      dom.tabVisual.classList.add('bg-white', 'text-indigo-700', 'shadow-sm');
+      dom.tabVisual.classList.remove('text-slate-600');
+      dom.tabTable.classList.remove('bg-white', 'text-indigo-700', 'shadow-sm');
+      dom.tabTable.classList.add('text-slate-600');
+
+      dom.visualContainer.classList.remove('hidden');
+      dom.visualSubcontrols.classList.remove('hidden');
+      dom.tableContainer.classList.add('hidden');
+      renderVisualView();
+    });
+
+    dom.tabTable.addEventListener('click', () => {
+      state.viewMode = 'table';
+      dom.tabTable.classList.add('bg-white', 'text-indigo-700', 'shadow-sm');
+      dom.tabTable.classList.remove('text-slate-600');
+      dom.tabVisual.classList.remove('bg-white', 'text-indigo-700', 'shadow-sm');
+      dom.tabVisual.classList.add('text-slate-600');
+
+      dom.tableContainer.classList.remove('hidden');
+      dom.visualContainer.classList.add('hidden');
+      dom.visualSubcontrols.classList.add('hidden');
+      renderTableView();
+    });
+
+    // Visual Sub-type Buttons (Bubbles, Bars, Treemap)
+    document.querySelectorAll('.chart-type-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.chart-type-btn').forEach(b => {
+          b.classList.remove('bg-white', 'text-slate-900', 'shadow-xs');
+          b.classList.add('text-slate-600');
+        });
+        btn.classList.add('bg-white', 'text-slate-900', 'shadow-xs');
+        btn.classList.remove('text-slate-600');
+        state.chartType = btn.dataset.chart;
+        renderVisualView();
+      });
+    });
+
+    // Search Filter & Top-N Limit
+    dom.filterInput.addEventListener('input', (e) => {
+      state.searchTerm = e.target.value;
+      applyFilterAndRender();
+    });
+
+    dom.limitSelect.addEventListener('change', (e) => {
+      state.limit = e.target.value;
+      if (state.viewMode === 'visual') renderVisualView();
+    });
+
+    // Table Sorting
+    document.querySelectorAll('.sort-header').forEach(th => {
+      th.addEventListener('click', () => {
+        const col = th.dataset.sort;
+        if (state.sortCol === col) {
+          state.sortAsc = !state.sortAsc;
+        } else {
+          state.sortCol = col;
+          state.sortAsc = col === 'label' || col === 'id' || col === 'rank';
+        }
+        renderTableView();
+      });
+    });
+
+    // Export CSV / JSON
+    document.getElementById('btn-export-csv').addEventListener('click', () => {
+      if (!state.filteredResults.length) return;
+      const header = 'rank,property_id,property_uri,property_label,count,share_percent\n';
+      const rows = state.filteredResults.map(r =>
+        `${r.rank},"${r.id}","${r.pageUrl}","${r.label.replace(/"/g, '""')}",${r.count},${r.share.toFixed(4)}`
+      ).join('\n');
+      triggerDownload('wikidata-properties.csv', header + rows, 'text/csv;charset=utf-8;');
+    });
+
+    document.getElementById('btn-export-json').addEventListener('click', () => {
+      if (!state.filteredResults.length) return;
+      triggerDownload('wikidata-properties.json', JSON.stringify(state.filteredResults, null, 2), 'application/json');
+    });
+
+    // Modal: Inspect Full Query
+    document.getElementById('btn-inspect-query').addEventListener('click', () => {
+      dom.fullQueryPreview.textContent = buildFullQuery();
+      dom.queryModal.classList.remove('hidden');
+    });
+
+    const closeModal = () => dom.queryModal.classList.add('hidden');
+    document.getElementById('btn-close-modal').addEventListener('click', closeModal);
+    document.getElementById('btn-close-modal-2').addEventListener('click', closeModal);
+    dom.queryModal.addEventListener('click', (e) => {
+      if (e.target === dom.queryModal) closeModal();
+    });
+
+    document.getElementById('btn-copy-query').addEventListener('click', () => {
+      const textArea = document.createElement('textarea');
+      textArea.value = dom.fullQueryPreview.textContent;
+      document.body.appendChild(textArea);
+      textArea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textArea);
+
+      dom.copyFeedback.classList.remove('opacity-0');
+      setTimeout(() => dom.copyFeedback.classList.add('opacity-0'), 2000);
+    });
+
+    // Download Standalone HTML file for GitHub Pages
+    document.getElementById('btn-download-html').addEventListener('click', () => {
+      const htmlContent = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+      triggerDownload('index.html', htmlContent, 'text/html;charset=utf-8;');
+    });
+
+    // Responsive Redraw on Window Resize
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+      clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (state.viewMode === 'visual' && state.filteredResults.length > 0) {
+          renderVisualView();
+        }
+      }, 180);
+    });
+
+    // Automatically run the default Writers query on page load
+    window.addEventListener('DOMContentLoaded', () => {
+      executeQuery();
+    });
+  </script>
+</body>
+</html>

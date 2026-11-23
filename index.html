@@ -975,7 +975,7 @@ ${labelPattern}
     function renderBubbleChart(data, width, height) {
       const colorScale = d3.scaleSequential()
         .domain([0, Math.max(data.length - 1, 1)])
-        .interpolator(t => d3.interpolateIndigo(0.85 - t * 0.55));
+        .interpolator(t => d3.interpolatePurples(0.85 - t * 0.55));
 
       const root = d3.hierarchy({ children: data })
         .sum(d => d.count);

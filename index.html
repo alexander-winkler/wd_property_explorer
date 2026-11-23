@@ -1055,6 +1055,103 @@ ${labelPattern}
           </tr>`;
         return;
       }
+
+      dom.tableBody.innerHTML = sorted.map(row => {
+        const barWidth = Math.max(1, (row.count / maxCount) * 100);
+        return `
+          <tr class="hover:bg-indigo-50/50 transition">
+            <td class="py-2.5 px-4 text-slate-400 font-mono text-[11px]">${row.rank}</td>
+            <td class="py-2.5 px-4 font-mono font-medium text-indigo-600">
+              <a href="${row.pageUrl}" target="_blank" rel="noopener" class="hover:underline">${escapeHtml(row.id)}</a>
+            </td>
+            <td class="py-2.5 px-4 font-medium text-slate-800">
+              <a href="${row.pageUrl}" target="_blank" rel="noopener" class="hover:text-indigo-700 hover:underline flex items-center gap-1.5">
+                <span>${escapeHtml(row.label)}</span>
+                <span class="text-slate-400 text-[10px]">↗</span>
+              </a>
+            </td>
+            <td class="py-2.5 px-4 text-right font-mono font-semibold text-slate-900">${row.count.toLocaleString()}</td>
+            <td class="py-2.5 px-4">
+              <div class="flex items-center gap-2">
+                <div class="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div class="h-full bg-indigo-500 rounded-full" style="width: ${barWidth.toFixed(1)}%"></div>
+                </div>
+                <span class="text-[11px] font-mono text-slate-500 w-12 text-right">${row.share.toFixed(1)}%</span>
+              </div>
+            </td>
+          </tr>`;
+      }).join('');
+    }
+
+    /**
+     * Tooltip & UI Helper Functions
+     */
+    function showTooltip(event, item) {
+      dom.ttLabel.textContent = item.label;
+      dom.ttPid.textContent = item.id;
+      dom.ttCount.textContent = item.count.toLocaleString();
+      dom.ttShare.textContent = `${item.share.toFixed(2)}%`;
+      dom.tooltip.classList.remove('opacity-0');
+      moveTooltip(event);
+    }
+
+    function moveTooltip(event) {
+      const pad = 14;
+      const ttRect = dom.tooltip.getBoundingClientRect();
+      let left = event.clientX + pad;
+      let top = event.clientY + pad;
+
+      if (left + ttRect.width > window.innerWidth - 12) {
+        left = event.clientX - ttRect.width - pad;
+      }
+      if (top + ttRect.height > window.innerHeight - 12) {
+        top = event.clientY - ttRect.height - pad;
+      }
+
+      dom.tooltip.style.left = `${Math.max(8, left)}px`;
+      dom.tooltip.style.top = `${Math.max(8, top)}px`;
+    }
+
+    function hideTooltip() {
+      dom.tooltip.classList.add('opacity-0');
+    }
+
+    function setLoading(isLoading) {
+      dom.btnRun.disabled = isLoading;
+      dom.runIcon.classList.toggle('hidden', isLoading);
+      dom.loadingSpinner.classList.toggle('hidden', !isLoading);
+      dom.runBtnText.textContent = isLoading ? 'Querying Wikidata...' : 'Analyze Properties';
+    }
+
+    function showError(msg) {
+      dom.errorMessage.textContent = msg;
+      dom.errorBox.classList.remove('hidden');
+    }
+
+    function hideError() {
+      dom.errorBox.classList.add('hidden');
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    function triggerDownload(filename, content, mimeType) {
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+
     // Event Listeners: Input Mode Switching (Custom SPARQL vs Sample Item P31)
     function switchInputMode(mode) {
       state.inputMode = mode;
